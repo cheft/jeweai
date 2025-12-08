@@ -1,47 +1,53 @@
 <script lang="ts">
-  import { Globe, User } from 'lucide-svelte';
-  import LoginModal from './LoginModal.svelte';
+	import { Globe, User } from 'lucide-svelte';
+	import LoginModal from './LoginModal.svelte';
 
-  let isLoginOpen = $state(false);
+	let isLoginOpen = $state(false);
 </script>
 
-<header class="fixed top-0 left-0 w-full z-50 bg-seko-bg/80 backdrop-blur-md border-b border-white/5">
-  <div class="container mx-auto px-4 h-16 flex items-center justify-between">
-    <!-- Logo -->
-    <a href="/" class="text-2xl font-bold tracking-tighter flex items-center gap-2">
-			<div class="w-8 h-8 bg-seko-accent rounded-lg rotate-3"></div>
+<header
+	class="fixed top-0 left-0 z-50 w-full border-b border-white/5 bg-seko-bg/80 backdrop-blur-md"
+>
+	<div class="container mx-auto flex h-16 items-center justify-between px-4">
+		<!-- Logo -->
+		<a href="/" class="flex items-center gap-2 text-2xl font-bold tracking-tighter">
+			<div class="h-8 w-8 rotate-3 rounded-lg bg-seko-accent"></div>
 			JewelAI
 		</a>
 
-    <!-- Navigation -->
-    <nav class="hidden md:flex items-center gap-8">
-      <a href="/gallery" class="text-sm font-medium text-gray-300 hover:text-white transition-colors"
-        >Gallery</a
-      >
-      <a href="#" class="text-sm font-medium text-gray-300 hover:text-white transition-colors"
-        >Pricing</a
-      >
-      <a href="#" class="text-sm font-medium text-gray-300 hover:text-white transition-colors"
-        >About</a
-      >
-    </nav>
+		<!-- Navigation -->
+		<nav class="hidden items-center gap-8 md:flex">
+			<a
+				href="/gallery"
+				class="text-sm font-medium text-gray-300 transition-colors hover:text-white">Gallery</a
+			>
+			<a href="/assets" class="text-sm font-medium text-gray-300 transition-colors hover:text-white"
+				>Assets</a
+			>
+			<a href="#" class="text-sm font-medium text-gray-300 transition-colors hover:text-white"
+				>Pricing</a
+			>
+			<a href="#" class="text-sm font-medium text-gray-300 transition-colors hover:text-white"
+				>About</a
+			>
+		</nav>
 
-    <!-- Auth Buttons -->
-    <div class="flex items-center gap-4">
-      <button
-        class="text-sm font-medium text-white hover:text-seko-accent transition-colors"
-        onclick={() => (isLoginOpen = true)}
-      >
-        Log In
-      </button>
-      <button
-        class="px-5 py-2 bg-white text-black text-sm font-bold rounded-full hover:bg-gray-200 transition-colors"
-        onclick={() => (isLoginOpen = true)}
-      >
-        Get Started
-      </button>
-    </div>
-  </div>
+		<!-- Auth Buttons -->
+		<div class="flex items-center gap-4">
+			<button
+				class="text-sm font-medium text-white transition-colors hover:text-seko-accent"
+				onclick={() => (isLoginOpen = true)}
+			>
+				Log In
+			</button>
+			<button
+				class="rounded-full bg-white px-5 py-2 text-sm font-bold text-black transition-colors hover:bg-gray-200"
+				onclick={() => (isLoginOpen = true)}
+			>
+				Get Started
+			</button>
+		</div>
+	</div>
 </header>
 
 <LoginModal isOpen={isLoginOpen} onClose={() => (isLoginOpen = false)} />
