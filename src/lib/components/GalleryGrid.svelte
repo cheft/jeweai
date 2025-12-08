@@ -7,7 +7,7 @@
 		videoUrl?: string;
 		title: string;
 		duration: string;
-        isPortrait?: boolean;
+		isPortrait?: boolean;
 	}
 
 	let { items } = $props<{ items: GalleryItem[] }>();
@@ -22,11 +22,11 @@
 	}
 </script>
 
-<div class="columns-1 sm:columns-2 lg:columns-3 gap-6">
+<div class="columns-1 gap-6 sm:columns-2 lg:columns-3 xl:columns-5">
 	{#each items as item}
 		<div
-			class="group relative break-inside-avoid mb-6 rounded-xl overflow-hidden bg-gray-900 border border-white/10 cursor-pointer transition-transform hover:scale-[1.02] hover:shadow-2xl hover:shadow-seko-accent/10 hover:border-seko-accent/30"
-            style="aspect-ratio: {item.isPortrait ? '9/16' : '16/9'};"
+			class="group relative mb-6 cursor-pointer break-inside-avoid overflow-hidden rounded-xl border border-white/10 bg-gray-900 transition-transform hover:scale-[1.02] hover:border-seko-accent/30 hover:shadow-2xl hover:shadow-seko-accent/10"
+			style="aspect-ratio: {item.isPortrait ? '9/16' : '16/9'};"
 			onmouseenter={() => handleMouseEnter(item.id)}
 			onmouseleave={handleMouseLeave}
 			role="button"
@@ -36,14 +36,14 @@
 			<img
 				src={item.thumbnail}
 				alt={item.title}
-				class="w-full h-full object-cover transition-opacity duration-500 {hoveredId === item.id
+				class="h-full w-full object-cover transition-opacity duration-500 {hoveredId === item.id
 					? 'opacity-0'
 					: 'opacity-100'}"
 			/>
 
 			<!-- "Video" State -->
 			<div
-				class="absolute inset-0 bg-black flex items-center justify-center transition-opacity duration-300 {hoveredId ===
+				class="absolute inset-0 flex items-center justify-center bg-black transition-opacity duration-300 {hoveredId ===
 				item.id
 					? 'opacity-100'
 					: 'opacity-0'}"
@@ -52,33 +52,35 @@
 				<img
 					src={item.thumbnail}
 					alt={item.title}
-					class="w-full h-full object-cover scale-110 animate-pulse"
+					class="h-full w-full scale-110 animate-pulse object-cover"
 				/>
 				<div class="absolute inset-0 bg-black/20"></div>
-				
-                <!-- Playing Indicator -->
-                <div class="absolute top-4 right-4 bg-seko-accent/90 text-black text-xs font-bold px-2 py-1 rounded flex items-center gap-1">
-                    <span class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-                    PLAYING
-                </div>
 
-                <!-- Progress Bar Mock -->
-                <div class="absolute bottom-0 left-0 right-0 h-1 bg-white/20">
-                    <div class="h-full bg-seko-accent w-2/3 animate-[width_2s_ease-in-out_infinite]"></div>
-                </div>
+				<!-- Playing Indicator -->
+				<div
+					class="absolute top-4 right-4 flex items-center gap-1 rounded bg-seko-accent/90 px-2 py-1 text-xs font-bold text-black"
+				>
+					<span class="h-2 w-2 animate-pulse rounded-full bg-red-500"></span>
+					PLAYING
+				</div>
+
+				<!-- Progress Bar Mock -->
+				<div class="absolute right-0 bottom-0 left-0 h-1 bg-white/20">
+					<div class="h-full w-2/3 animate-[width_2s_ease-in-out_infinite] bg-seko-accent"></div>
+				</div>
 			</div>
 
 			<!-- Overlay Info (Hidden on hover) -->
 			<div
-				class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-100 group-hover:opacity-0 transition-opacity duration-300 flex flex-col justify-end p-4"
+				class="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/80 via-transparent to-transparent p-4 opacity-100 transition-opacity duration-300 group-hover:opacity-0"
 			>
-				<h3 class="text-white font-bold text-lg">{item.title}</h3>
-				<div class="flex items-center gap-2 text-gray-300 text-sm">
+				<h3 class="text-lg font-bold text-white">{item.title}</h3>
+				<div class="flex items-center gap-2 text-sm text-gray-300">
 					<svg
 						xmlns="http://www.w3.org/2000/svg"
 						viewBox="0 0 24 24"
 						fill="currentColor"
-						class="w-4 h-4"
+						class="h-4 w-4"
 					>
 						<path
 							fill-rule="evenodd"
@@ -89,15 +91,19 @@
 					<span>{item.duration}</span>
 				</div>
 			</div>
-            
-            <!-- Play Button Overlay (Center) -->
-            <div class="absolute inset-0 flex items-center justify-center pointer-events-none group-hover:opacity-0 transition-opacity">
-                <div class="w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center border border-white/30">
-                    <svg
+
+			<!-- Play Button Overlay (Center) -->
+			<div
+				class="pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity group-hover:opacity-0"
+			>
+				<div
+					class="flex h-12 w-12 items-center justify-center rounded-full border border-white/30 bg-white/20 backdrop-blur-sm"
+				>
+					<svg
 						xmlns="http://www.w3.org/2000/svg"
 						viewBox="0 0 24 24"
 						fill="currentColor"
-						class="w-6 h-6 text-white ml-1"
+						class="ml-1 h-6 w-6 text-white"
 					>
 						<path
 							fill-rule="evenodd"
@@ -105,8 +111,8 @@
 							clip-rule="evenodd"
 						/>
 					</svg>
-                </div>
-            </div>
+				</div>
+			</div>
 		</div>
 	{/each}
 </div>
