@@ -1,0 +1,18 @@
+@import 'tailwindcss';
+@plugin '@tailwindcss/typography';
+
+@theme {
+    --color-seko-bg: #0a0a0a;
+    --color-seko-text: #ffffff;
+    --color-seko-accent: #a3e635;
+    /* Neon green approximation */
+    --color-seko-purple: #a855f7;
+    /* Purple approximation */
+    --font-sans: 'Inter', sans-serif;
+}
+
+@layer base {
+    body {
+        @apply bg-seko-bg text-seko-text font-sans antialiased;
+    }
+}
