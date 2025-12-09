@@ -24,8 +24,9 @@
 			<a href="/assets" class="text-sm font-medium text-gray-300 transition-colors hover:text-white"
 				>Assets</a
 			>
-			<a href="#" class="text-sm font-medium text-gray-300 transition-colors hover:text-white"
-				>Pricing</a
+			<a
+				href="/pricing"
+				class="text-sm font-medium text-gray-300 transition-colors hover:text-white">Pricing</a
 			>
 			<a href="#" class="text-sm font-medium text-gray-300 transition-colors hover:text-white"
 				>About</a
