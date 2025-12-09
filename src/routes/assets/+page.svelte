@@ -253,13 +253,16 @@
 		}
 	}
 
-	function handleMove(draggedIds: string[], targetId: string) {
-		const target = assets.find((a) => a.id === targetId);
-		if (!target || target.type !== 'folder') return;
+	function handleMove(draggedIds: string[], targetId: string | null) {
+		// If targetId is provided, verify it exists and is a folder
+		if (targetId) {
+			const target = assets.find((a) => a.id === targetId);
+			if (!target || target.type !== 'folder') return;
+		}
 
 		// Prevent circular
 		for (const draggedId of draggedIds) {
-			if (draggedId === targetId) continue; // Move to self? logic error in caller usually, but check
+			if (targetId && draggedId === targetId) continue; // Move to self? logic error in caller usually, but check
 
 			let check: string | null = targetId;
 			let isCircular = false;
@@ -281,6 +284,19 @@
 			return a;
 		});
 		selectedIds = [];
+	}
+
+	function handleBreadcrumbDrop(e: DragEvent, targetId: string | null) {
+		e.preventDefault();
+		const data = e.dataTransfer?.getData('application/json');
+		if (data) {
+			try {
+				const draggedIds = JSON.parse(data) as string[];
+				handleMove(draggedIds, targetId);
+			} catch (err) {
+				console.error('Drop parse error', err);
+			}
+		}
 	}
 
 	// Context Menu Handlers
@@ -315,17 +331,22 @@
 			<div>
 				<h1 class="mb-2 text-3xl font-bold text-white">Assets</h1>
 				<div class="flex items-center gap-2 text-sm text-gray-400">
+					<!-- Home Breadcrumb -->
 					<button
-						class="transition-colors hover:text-seko-accent"
+						class="rounded px-2 py-1 transition-colors hover:bg-white/10 hover:text-seko-accent"
 						onclick={() => handleNavigate(null)}
+						ondragover={(e) => e.preventDefault()}
+						ondrop={(e) => handleBreadcrumbDrop(e, null)}
 					>
 						Home
 					</button>
 					{#each currentPath as folder}
 						<span class="text-gray-600">/</span>
 						<button
-							class="transition-colors hover:text-seko-accent"
+							class="rounded px-2 py-1 transition-colors hover:bg-white/10 hover:text-seko-accent"
 							onclick={() => handleNavigate(folder.id)}
+							ondragover={(e) => e.preventDefault()}
+							ondrop={(e) => handleBreadcrumbDrop(e, folder.id)}
 						>
 							{folder.name}
 						</button>
