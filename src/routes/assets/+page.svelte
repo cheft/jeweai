@@ -143,21 +143,6 @@
 		if (!clipboard) return;
 
 		if (clipboard.op === 'copy') {
-			// Duplicate items (new IDs)
-			const newItems = clipboard.items.map((item) => ({
-				...item,
-				id: crypto.randomUUID(),
-				parentId: currentFolderId,
-				name: `${item.name} (Copy)`,
-				createdAt: Date.now()
-			}));
-			assets = [...assets, ...newItems];
-			// What about deep copy for folders?
-			// For specific deep copy logic, we'd need recursion.
-			// Simplification: Copy logic only copies top level for now or recursive if needed.
-			// Let's implement deep copy for better UX if it's a folder.
-
-			// Actually, for a robust file explorer, deep copy is expected.
 			// Re-implemeting paste with recursion:
 			const clones: Asset[] = [];
 			const idMap = new Map<string, string>(); // Old ID -> New ID
@@ -317,7 +302,7 @@
 </script>
 
 <div
-	class="min-h-screen px-6 pt-24 pb-20"
+	class="flex min-h-screen flex-col px-6 pt-24 pb-20"
 	role="presentation"
 	onclick={() => {
 		// Clear selection if clicking background (AssetGrid handles its own background clicks too but this catches margins)
@@ -325,7 +310,7 @@
 		// Ideally handled by AssetGrid's container click
 	}}
 >
-	<div class="container mx-auto">
+	<div class="container mx-auto flex flex-1 flex-col">
 		<!-- Header & Breadcrumbs -->
 		<div class="mb-6 flex items-center justify-between">
 			<div>

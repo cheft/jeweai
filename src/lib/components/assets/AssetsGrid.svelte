@@ -185,7 +185,7 @@
 
 <div
 	bind:this={containerRef}
-	class="relative min-h-[500px] w-full"
+	class="relative min-h-[500px] w-full flex-1"
 	role="region"
 	aria-label="File Grid"
 	onmousedown={handleContainerMouseDown}
