@@ -1,5 +1,6 @@
 <script lang="ts">
 	import PricingCard from '$lib/components/pricing/PricingCard.svelte';
+	import { auth } from '$lib/stores/auth';
 	import { fade, fly } from 'svelte/transition';
 
 	let billingCycle = $state<'monthly' | 'yearly'>('monthly');
@@ -106,7 +107,23 @@
 					features={plan.features}
 					highlight={plan.highlight}
 					buttonText={plan.buttonText}
-					onSubscribe={() => alert(`Subscribed to ${plan.title} (${billingCycle})`)}
+					onSubscribe={() => {
+						if (plan.title === 'Free') return; // Access granted
+
+						if (!$auth) {
+							// For demo: auto-login or prompt
+							if (confirm("You need to be logged in. Log in as Demo User?")) {
+								import('$lib/stores/auth').then(({ auth }) => auth.login());
+							} else {
+								return;
+							}
+						}
+						
+						// Redirect to checkout
+						import('$app/navigation').then(({ goto }) => {
+							goto(`/checkout?plan=${plan.title.toLowerCase()}&cycle=${billingCycle}`);
+						});
+					}}
 				/>
 			{/each}
 		</div>

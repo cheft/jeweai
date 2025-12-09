@@ -37,8 +37,10 @@
 		"vite": "^7.1.10"
 	},
 	"dependencies": {
+		"@stripe/stripe-js": "^8.5.3",
 		"clsx": "^2.1.1",
 		"lucide-svelte": "^0.554.0",
+		"stripe": "^20.0.0",
 		"tailwind-merge": "^3.4.0"
 	}
 }
