@@ -1,6 +1,7 @@
 <script lang="ts">
 	import AssetsGrid from '$lib/components/assets/AssetsGrid.svelte';
 	import ContextMenu from '$lib/components/assets/ContextMenu.svelte';
+	import FileToolbar from '$lib/components/assets/FileToolbar.svelte';
 	import type { Asset } from '$lib/types/assets';
 	import { onMount } from 'svelte';
 
@@ -11,8 +12,6 @@
 	import galleryBracelet from '$lib/assets/gallery-bracelet.png';
 	import galleryPortrait1 from '$lib/assets/gallery-portrait-1.png';
 	import galleryPortrait2 from '$lib/assets/gallery-portrait-2.png';
-	import styleLuxury from '$lib/assets/style-luxury.png';
-	import styleUrban from '$lib/assets/style-urban.png';
 
 	// State
 	let assets = $state<Asset[]>([
@@ -62,7 +61,10 @@
 	]);
 
 	let currentFolderId = $state<string | null>(null);
-	let contextMenu = $state<{ x: number; y: number; assetId: string } | null>(null);
+	let selectedIds = $state<string[]>([]);
+	let renamingId = $state<string | null>(null);
+	let clipboard = $state<{ op: 'copy' | 'cut'; items: Asset[] } | null>(null);
+	let contextMenu = $state<{ x: number; y: number } | null>(null);
 
 	// Derived
 	let visibleAssets = $derived(assets.filter((a) => a.parentId === currentFolderId));
@@ -78,6 +80,8 @@
 	// Actions
 	function handleNavigate(folderId: string | null) {
 		currentFolderId = folderId;
+		selectedIds = [];
+		renamingId = null;
 		contextMenu = null;
 	}
 
@@ -90,70 +94,224 @@
 			createdAt: Date.now()
 		};
 		assets = [...assets, newFolder];
+		// Auto select and rename
+		selectedIds = [newFolder.id];
+		renamingId = newFolder.id;
 	}
 
-	function handleRename(id: string, newName: string) {
+	function handleRenameSubmit(id: string, newName: string) {
+		if (!newName.trim()) return; // Revert if empty? Or keep old? Let's keep old or just trim.
 		const index = assets.findIndex((a) => a.id === id);
 		if (index !== -1) {
-			// In a real app, we'd trigger UI for input. simpler for now: prompt
-			// Note: Prompt blocks execution, maybe use a modal or inline edit later.
-			// For now, I'll use window.prompt as a quick impl, but better is inline.
-			// Actually, the user requirement didn't specify interaction details, just "menu to rename".
-			// I'll stick to prompt for MVP speed or implement a specialized dialog.
-			// Let's use prompt for simplicity as we don't have a Dialog component ready for this.
 			assets[index].name = newName;
 		}
+		renamingId = null;
 	}
 
-	function handleDelete(id: string) {
-		// Recursive delete
+	function handleRenameCancel() {
+		renamingId = null;
+	}
+
+	function handleDelete() {
+		if (selectedIds.length === 0) return;
+
 		const toDeleteIds = new Set<string>();
+
 		function collect(targetId: string) {
 			toDeleteIds.add(targetId);
 			assets.filter((a) => a.parentId === targetId).forEach((child) => collect(child.id));
 		}
-		collect(id);
+
+		selectedIds.forEach((id) => collect(id));
 		assets = assets.filter((a) => !toDeleteIds.has(a.id));
+		selectedIds = [];
 	}
 
-	function handleMove(draggedId: string, targetId: string) {
-		const draggedIndex = assets.findIndex((a) => a.id === draggedId);
+	function handleCopy() {
+		if (selectedIds.length === 0) return;
+		const itemsToCopy = assets.filter((a) => selectedIds.includes(a.id));
+		clipboard = { op: 'copy', items: itemsToCopy };
+	}
+
+	function handleCut() {
+		if (selectedIds.length === 0) return;
+		const itemsToCut = assets.filter((a) => selectedIds.includes(a.id));
+		clipboard = { op: 'cut', items: itemsToCut };
+	}
+
+	function handlePaste() {
+		if (!clipboard) return;
+
+		if (clipboard.op === 'copy') {
+			// Duplicate items (new IDs)
+			const newItems = clipboard.items.map((item) => ({
+				...item,
+				id: crypto.randomUUID(),
+				parentId: currentFolderId,
+				name: `${item.name} (Copy)`,
+				createdAt: Date.now()
+			}));
+			assets = [...assets, ...newItems];
+			// What about deep copy for folders?
+			// For specific deep copy logic, we'd need recursion.
+			// Simplification: Copy logic only copies top level for now or recursive if needed.
+			// Let's implement deep copy for better UX if it's a folder.
+
+			// Actually, for a robust file explorer, deep copy is expected.
+			// Re-implemeting paste with recursion:
+			const clones: Asset[] = [];
+			const idMap = new Map<string, string>(); // Old ID -> New ID
+
+			// First pass: Clone roots and map IDs
+			clipboard.items.forEach((item) => {
+				const newId = crypto.randomUUID();
+				idMap.set(item.id, newId);
+				clones.push({
+					...item,
+					id: newId,
+					parentId: currentFolderId, // New parent is current view
+					name: item.name, // Name conflict? Let's append Copy if same parent, but here we pasting probably in same folder or other.
+					// If pasting in same folder, rename.
+					createdAt: Date.now()
+				});
+			});
+
+			// If any item was a folder, we need to find its children in the ORIGINAL assets list (if we can find them)
+			// But wait, 'clipboard.items' only contains the selected items.
+			// If we copy a folder, we expect its children to be copied too.
+			// Current simplicity: Shallow copy references or we need to fetch children from global 'assets'
+
+			// Recursive Copy Helper
+			const deepCopy = (originalId: string, newParentId: string) => {
+				const children = assets.filter((a) => a.parentId === originalId);
+				children.forEach((child) => {
+					const newChildId = crypto.randomUUID();
+					clones.push({
+						...child,
+						id: newChildId,
+						parentId: newParentId,
+						createdAt: Date.now()
+					});
+					if (child.type === 'folder') {
+						deepCopy(child.id, newChildId);
+					}
+				});
+			};
+
+			// Execute Deep Copy for each pasted item
+			clipboard.items.forEach((item, idx) => {
+				// Detect name collision in current folder
+				let finalName = item.name;
+				if (item.parentId === currentFolderId) {
+					finalName = `${item.name} copy`; // Classic behavior
+				}
+
+				// Update root clone name
+				const rootClone = clones[idx]; // It corresponds to items[idx]
+				rootClone.name = finalName;
+
+				if (item.type === 'folder') {
+					deepCopy(item.id, rootClone.id);
+				}
+			});
+
+			assets = [...assets, ...clones];
+		} else if (clipboard.op === 'cut') {
+			// Move items
+			// Check for circular move
+			const targetId = currentFolderId;
+			let validMove = true;
+
+			// We can't move a folder into itself or its children
+			// Check each item
+			for (const item of clipboard.items) {
+				if (item.type === 'folder') {
+					let check = targetId;
+					while (check) {
+						if (check === item.id) {
+							validMove = false;
+							break;
+						}
+						const p = assets.find((a) => a.id === check);
+						check = p?.parentId || null;
+					}
+				}
+				if (!validMove) break;
+			}
+
+			if (validMove) {
+				assets = assets.map((a) => {
+					if (clipboard!.items.some((c) => c.id === a.id)) {
+						return { ...a, parentId: currentFolderId };
+					}
+					return a;
+				});
+				clipboard = null; // Clear clipboard after move
+			} else {
+				alert('Cannot move a folder into itself.');
+			}
+		}
+	}
+
+	function handleMove(draggedIds: string[], targetId: string) {
 		const target = assets.find((a) => a.id === targetId);
+		if (!target || target.type !== 'folder') return;
 
-		if (draggedIndex === -1 || !target || target.type !== 'folder') return;
+		// Prevent circular
+		for (const draggedId of draggedIds) {
+			if (draggedId === targetId) continue; // Move to self? logic error in caller usually, but check
 
-		// Prevent circular move (folder into itself or its children)
-		let checkId: string | null = target.id;
-		while (checkId) {
-			if (checkId === draggedId) return; // Cannot move into self/child
-			const p = assets.find((a) => a.id === checkId);
-			checkId = p?.parentId || null;
+			let check: string | null = targetId;
+			let isCircular = false;
+			while (check) {
+				if (check === draggedId) {
+					isCircular = true;
+					break;
+				}
+				const p = assets.find((a) => a.id === check);
+				check = p?.parentId || null;
+			}
+			if (isCircular) return;
 		}
 
-		assets[draggedIndex].parentId = target.id;
-		// Re-assign to trigger reactivity if needed (Svelte 5 runes usually handle deep reactivity on arrays if they are proxies, but let's be safe)
-		// assets = [...assets];
+		assets = assets.map((a) => {
+			if (draggedIds.includes(a.id)) {
+				return { ...a, parentId: targetId };
+			}
+			return a;
+		});
+		selectedIds = [];
 	}
 
 	// Context Menu Handlers
 	function onContextMenu(e: MouseEvent, asset: Asset) {
 		e.preventDefault();
-		contextMenu = { x: e.clientX, y: e.clientY, assetId: asset.id };
+		// If clicking outside selection, select just this one
+		if (!selectedIds.includes(asset.id)) {
+			selectedIds = [asset.id];
+		}
+		contextMenu = { x: e.clientX, y: e.clientY };
 	}
 
-	function triggerRename(assetId: string) {
-		const asset = assets.find((a) => a.id === assetId);
-		if (asset) {
-			const newName = window.prompt('Rename to:', asset.name);
-			if (newName) handleRename(assetId, newName);
-		}
+	function onBackgroundContextMenu(e: MouseEvent) {
+		// e.preventDefault();
+		// Optional: Context menu for empty space (Paste, New Folder)
+		// For now let's just use it to clear selection or ignore
 	}
 </script>
 
-<div class="min-h-screen px-6 pt-24 pb-20">
+<div
+	class="min-h-screen px-6 pt-24 pb-20"
+	role="presentation"
+	onclick={() => {
+		// Clear selection if clicking background (AssetGrid handles its own background clicks too but this catches margins)
+		// But check if we didn't click toolbar or something
+		// Ideally handled by AssetGrid's container click
+	}}
+>
 	<div class="container mx-auto">
 		<!-- Header & Breadcrumbs -->
-		<div class="mb-8 flex items-center justify-between">
+		<div class="mb-6 flex items-center justify-between">
 			<div>
 				<h1 class="mb-2 text-3xl font-bold text-white">Assets</h1>
 				<div class="flex items-center gap-2 text-sm text-gray-400">
@@ -174,28 +332,40 @@
 					{/each}
 				</div>
 			</div>
-
-			<button
-				class="rounded-full bg-seko-accent px-6 py-2 font-bold text-black transition-transform hover:scale-105"
-				onclick={handleCreateFolder}
-			>
-				+ New Folder
-			</button>
 		</div>
 
+		<!-- Toolbar -->
+		<FileToolbar
+			canPaste={!!clipboard}
+			hasSelection={selectedIds.length > 0}
+			onCreateFolder={handleCreateFolder}
+			onCopy={handleCopy}
+			onCut={handleCut}
+			onPaste={handlePaste}
+			onDelete={handleDelete}
+			onRename={() => {
+				if (selectedIds.length === 1) renamingId = selectedIds[0];
+			}}
+		/>
+
+		<!-- Grid -->
 		<AssetsGrid
 			items={visibleAssets}
-			onSelect={() => {}}
+			{selectedIds}
+			{renamingId}
+			onSelect={(ids) => (selectedIds = ids)}
 			onDblClick={(asset) => {
 				if (asset.type === 'folder') handleNavigate(asset.id);
 			}}
 			{onContextMenu}
 			onDrop={handleMove}
+			onRenameSubmit={handleRenameSubmit}
+			onRenameCancel={handleRenameCancel}
 		/>
 
 		{#if visibleAssets.length === 0}
 			<div class="mt-20 flex flex-col items-center justify-center text-gray-500">
-				<p class="mb-4 text-lg">This folder is empty</p>
+				<p class="mb-4 text-lg">Empty folder</p>
 			</div>
 		{/if}
 	</div>
@@ -205,8 +375,15 @@
 			x={contextMenu.x}
 			y={contextMenu.y}
 			onClose={() => (contextMenu = null)}
-			onRename={() => triggerRename(contextMenu!.assetId)}
-			onDelete={() => handleDelete(contextMenu!.assetId)}
+			onRename={() => {
+				if (selectedIds.length === 1) renamingId = selectedIds[0];
+			}}
+			onDelete={handleDelete}
+			onCopy={handleCopy}
+			onCut={handleCut}
+			onPaste={handlePaste}
+			canPaste={!!clipboard}
+			hasSelection={selectedIds.length > 0}
 		/>
 	{/if}
 </div>

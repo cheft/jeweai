@@ -4,24 +4,31 @@
 	let {
 		asset,
 		selected = false,
+		renaming = false,
 		onselect,
 		ondblclick,
 		oncontextmenu,
 		ondragstart,
 		ondrop,
-		ondragover
+		ondragover,
+		onRenameSubmit,
+		onRenameCancel
 	} = $props<{
 		asset: Asset;
 		selected?: boolean;
-		onselect?: () => void;
-		ondblclick?: () => void;
+		renaming?: boolean;
+		onselect?: (e: MouseEvent) => void;
+		ondblclick?: (e: MouseEvent) => void;
 		oncontextmenu?: (e: MouseEvent) => void;
 		ondragstart?: (e: DragEvent) => void;
 		ondrop?: (e: DragEvent) => void;
 		ondragover?: (e: DragEvent) => void;
+		onRenameSubmit?: (newName: string) => void;
+		onRenameCancel?: () => void;
 	}>();
 
 	let isDragOver = $state(false);
+	let renameInputRef: HTMLInputElement;
 
 	function handleDragOver(e: DragEvent) {
 		e.preventDefault();
@@ -42,25 +49,50 @@
 			ondrop?.(e);
 		}
 	}
+
+	function handleKeyDown(e: KeyboardEvent) {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			onRenameSubmit?.(renameInputRef.value);
+		} else if (e.key === 'Escape') {
+			e.preventDefault();
+			onRenameCancel?.();
+		}
+	}
+
+	$effect(() => {
+		if (renaming && renameInputRef) {
+			renameInputRef.focus();
+			renameInputRef.select();
+		}
+	});
+
+	function handleClick(e: MouseEvent) {
+		if (renaming) {
+			e.stopPropagation(); // Don't trigger select when clicking input
+		} else {
+			onselect?.(e);
+		}
+	}
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class="group relative flex flex-col items-center gap-2 rounded-xl p-4 transition-all duration-200
-    {selected ? 'bg-white/10 ring-2 ring-seko-accent' : 'hover:bg-white/5'}
+    {selected ? 'bg-seko-accent/20 ring-2 ring-seko-accent' : 'hover:bg-white/5'}
     {isDragOver ? 'scale-105 bg-white/10 ring-2 ring-seko-accent' : ''}"
-	onclick={onselect}
+	onclick={handleClick}
 	{ondblclick}
 	{oncontextmenu}
-	draggable="true"
+	draggable={!renaming}
 	{ondragstart}
 	ondragover={handleDragOver}
 	ondragleave={handleDragLeave}
 	ondrop={handleDrop}
 >
 	<div
-		class="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-lg bg-gray-800"
+		class="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-lg bg-gray-800 shadow-inner"
 	>
 		{#if asset.type === 'folder'}
 			<!-- Folder Icon -->
@@ -121,8 +153,19 @@
 		{/if}
 	</div>
 	<div class="w-full text-center">
-		<p class="truncate text-xs font-medium text-gray-300 group-hover:text-white">
-			{asset.name}
-		</p>
+		{#if renaming}
+			<input
+				bind:this={renameInputRef}
+				value={asset.name}
+				class="w-full rounded border border-seko-accent bg-black/50 p-0.5 px-1 text-center text-xs text-white outline-none focus:ring-1 focus:ring-seko-accent"
+				onkeydown={handleKeyDown}
+				onclick={(e) => e.stopPropagation()}
+				onblur={() => onRenameSubmit?.(renameInputRef.value)}
+			/>
+		{:else}
+			<p class="truncate text-xs font-medium text-gray-300 group-hover:text-white">
+				{asset.name}
+			</p>
+		{/if}
 	</div>
 </div>
