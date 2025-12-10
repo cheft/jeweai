@@ -35,6 +35,10 @@
 				>Assets</a
 			>
 			<a
+				href="/timeline"
+				class="text-sm font-medium text-gray-300 transition-colors hover:text-white">Timeline</a
+			>
+			<a
 				href="/pricing"
 				class="text-sm font-medium text-gray-300 transition-colors hover:text-white">Pricing</a
 			>
