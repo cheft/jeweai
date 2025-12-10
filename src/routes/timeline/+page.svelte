@@ -164,6 +164,13 @@
 							class="group relative block aspect-9/16 overflow-hidden rounded-2xl border border-white/10 bg-white/5 transition-all duration-300 hover:border-seko-accent/50 hover:shadow-[0_0_30px_rgba(163,230,53,0.15)] focus:ring-2 focus:ring-seko-accent focus:ring-offset-2 focus:ring-offset-black focus:outline-none"
 							in:fade={{ duration: 400, delay: Number(video.id) * 50 }}
 						>
+							<!-- Time Badge (Always Visible) -->
+							<div
+								class="absolute top-3 right-3 z-20 rounded-full border border-white/10 bg-black/40 px-2.5 py-1 font-mono text-xs font-medium text-white shadow-sm backdrop-blur-md"
+							>
+								{formatTime(video.createdAt)}
+							</div>
+
 							{#if video.status === 'completed' && video.thumbnail}
 								<img
 									src={video.thumbnail}
@@ -197,7 +204,7 @@
 											<span>•</span>
 											<span>{video.duration}</span>
 										</div>
-										<span class="text-gray-300">{formatTime(video.createdAt)}</span>
+										<!-- Removed time from here -->
 									</div>
 									<p
 										class="line-clamp-2 text-sm leading-snug font-medium text-white drop-shadow-md group-hover:text-white/90"
@@ -219,11 +226,6 @@
 								<div
 									class="absolute inset-0 flex flex-col items-center justify-center bg-white/5 p-6 text-center backdrop-blur-sm"
 								>
-									<!-- Time label for generating state -->
-									<div class="absolute top-4 right-4 font-mono text-xs text-gray-500">
-										{formatTime(video.createdAt)}
-									</div>
-
 									<div class="relative mb-6 h-16 w-16">
 										<div class="absolute inset-0 rounded-full border-4 border-seko-accent/20"></div>
 										<div
@@ -240,11 +242,6 @@
 								<div
 									class="absolute inset-0 flex flex-col items-center justify-center bg-black/40 p-6 text-center"
 								>
-									<!-- Time label for queued state -->
-									<div class="absolute top-4 right-4 font-mono text-xs text-gray-500">
-										{formatTime(video.createdAt)}
-									</div>
-
 									<div
 										class="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-white/5 shadow-inner"
 									>
