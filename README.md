@@ -36,3 +36,11 @@ npm run build
 You can preview the production build with `npm run preview`.
 
 > To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+
+## Framework
+
+- UI Component: [David UI](https://www.creative-tim.com/david-ui/docs/html/liquid-glass/usecases)
+- User Auth: Better Auth
+- ORPC & drizzle
+- Minio & Redis & PG
+- adm-zip & nanoid

@@ -105,8 +105,8 @@
 </script>
 
 <svelte:head>
-	<title>Gallery - JewelAI</title>
-	<meta name="description" content="Explore cinematic jewelry ads generated with JewelAI." />
+	<title>Gallery - JeweAI</title>
+	<meta name="description" content="Explore cinematic jewelry ads generated with JeweAI." />
 </svelte:head>
 
 <div class="min-h-screen pt-24 pb-20">
@@ -114,8 +114,8 @@
 		<div class="mb-16 text-center">
 			<h1 class="mb-6 text-4xl font-bold text-white md:text-6xl">Inspiration Gallery</h1>
 			<p class="mx-auto max-w-2xl text-xl text-gray-400">
-				Discover what's possible with JewelAI. Explore a collection of stunning, AI-generated
-				jewelry commercials.
+				Discover what's possible with JeweAI. Explore a collection of stunning, AI-generated jewelry
+				commercials.
 			</p>
 		</div>
 

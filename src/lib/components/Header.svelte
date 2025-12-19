@@ -10,8 +10,8 @@
 	}
 
 	function handleLogin() {
-		auth.login(); // Mock login immediately for demo
-		// isLoginOpen = true; // For real flow
+		// auth.login(); // Mock login immediately for demo
+		isLoginOpen = true; // For real flow
 	}
 </script>
 
@@ -22,7 +22,7 @@
 		<!-- Logo -->
 		<a href="/" class="flex items-center gap-2 text-2xl font-bold tracking-tighter">
 			<div class="h-8 w-8 rotate-3 rounded-lg bg-seko-accent"></div>
-			JewelAI
+			JeweAI
 		</a>
 
 		<!-- Navigation -->

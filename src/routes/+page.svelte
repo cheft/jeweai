@@ -19,7 +19,7 @@
 </script>
 
 <svelte:head>
-	<title>JewelAI - Create Stunning Jewelry Ads</title>
+	<title>JeweAI - Create Stunning Jewelry Ads</title>
 	<meta
 		name="description"
 		content="Transform static jewelry photos into cinematic video commercials with AI."
@@ -28,8 +28,13 @@
 
 <Hero />
 <StyleSelector />
-<div onclick={handleGenerate} onkeydown={(e) => e.key === 'Enter' && handleGenerate()} role="button" tabindex="0">
-    <ProductUploader />
+<div
+	onclick={handleGenerate}
+	onkeydown={(e) => e.key === 'Enter' && handleGenerate()}
+	role="button"
+	tabindex="0"
+>
+	<ProductUploader />
 </div>
 <div id="preview-section">
 	<VideoPreview bind:this={videoPreviewComponent} />
