@@ -25,11 +25,11 @@ let videoId = '';
 // 注：不能将参考图做为视频的封面，严格保持珠宝形状、尺寸，不得更改产品的任何细节。`
 
 async function main() {
-	const imagePath = './ring.png';
+	const imagePath = './img/ad84314e-612c-4274-8b59-1e62448d55a1.png';
 	const imageBuffer = fs.readFileSync(imagePath);
 
 	// 2. 显式构造一个 File，指定 MIME 为 image/jpeg（如果是 PNG 就写 image/png）
-	const imageFile = new File([imageBuffer], 'ring.png', {
+	const imageFile = new File([imageBuffer], './img/ad84314e-612c-4274-8b59-1e62448d55a1.png', {
 		type: 'image/png'
 	});
 
@@ -55,13 +55,13 @@ async function main() {
 		// The camera smoothly pushes in to an extreme close‑up of the chain links, holding for about 3 seconds to showcase the edge finishing, surface polish, and metal texture with maximum sharpness and clarity. Then the camera gently pulls back to a medium close‑up of the model’s upper body. The model lightly touches the necklace with her fingers in a natural, elegant gesture, then looks into the camera and smiles softly. The necklace remains perfectly in focus, with all design details clearly visible.
 
 		// Overall mood and style: Warm, sophisticated, luxurious, intimate, and aspirational. No busy backgrounds, no props, no text on screen. The entire focus is on the model and the accurately reproduced necklace.
-		// `, // 提供珠宝主图
-		prompt: `15-second ultra high-end jewelry commercial video, 4K HDR, ultra‑realistic live action.
-Use the provided jewelry product image as the strict design reference: the jewelry must match the photo exactly in shape, size, color, materials, and all fine details, with no changes or reinterpretation. Do not use the provided jewelry product image as the thumbnail, first frame, or cover of the generated video.
-A beautiful young female model wears this jewelry, shown in elegant slow-motion poses. She gently touches and showcases the piece, turns slightly to catch the light, and looks into the camera with a soft, confident smile. Add a short, warm, marketing-style voiceover where she freely describes and praises the jewelry’s design, shine, and how it elevates any outfit.
-Lighting: soft, flattering studio light with bright, crisp highlights on the metal/gem, creating strong sparkle and reflections. Background: clean, minimal, luxury look with shallow depth of field so the model and jewelry stand out. Overall mood: stunning, eye‑catching, glamorous, perfect for premium brand advertising.`,
+		// prompt: `15-second ultra high-end jewelry commercial video, 4K HDR, ultra‑realistic live action.
+		// Use the provided jewelry product image as the strict design reference: the jewelry must match the photo exactly in shape, size, color, materials, and all fine details, with no changes or reinterpretation. Do not use the provided jewelry product image as the thumbnail, first frame, or cover of the generated video.
+		// A beautiful young female model wears this jewelry, shown in elegant slow-motion poses. She gently touches and showcases the piece, turns slightly to catch the light, and looks into the camera with a soft, confident smile. Add a short, warm, marketing-style voiceover where she freely describes and praises the jewelry’s design, shine, and how it elevates any outfit.
+		// Lighting: soft, flattering studio light with bright, crisp highlights on the metal/gem, creating strong sparkle and reflections. Background: clean, minimal, luxury look with shallow depth of field so the model and jewelry stand out. Overall mood: stunning, eye‑catching, glamorous, perfect for premium brand advertising.`,
 		model: 'sora_video2-15s',
-		// size: '720x1280',
+		prompt: `你是一位专业的电视广告大师，请使用图片中的九个分镜图，制作一个15秒的真人实拍电视广告视频，主人公是一个黑发亚洲女性，展现一个极具创意的故事，请添加中文配音，最后一个格子是产品原图，请保持产品的一致性，整个画面全部都是实拍风格`,
+		size: '720x1280',
 		// seconds: '15',
 		input_reference: imageFile
 	});

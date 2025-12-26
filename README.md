@@ -44,3 +44,19 @@ You can preview the production build with `npm run preview`.
 - ORPC & drizzle
 - Minio & Redis & PG
 - adm-zip & nanoid
+
+## Provider
+
+- https://resend.com/pricing Send 100 emails/day
+- https://sendgrid.com/en-us/pricing Send 100 emails/day
+- https://www.mailjet.com/pricing/ 每天 200 封电子邮件
+- https://www.better-auth.com/
+- https://www.supabase.com/pricing
+
+- https://cliproxy.com/pricing/static-isp/
+- https://d.m123.org/
+- https://ping0.cc/
+- https://ipinfo.io/
+- https://www.hostinger.com/referral?REFERRALCODE=0HYDUANGTXSO
+- https://bunny.net/
+- https://cloudflare.com cdn
