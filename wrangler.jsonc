@@ -1,0 +1,16 @@
+{
+  "name": "jeweai",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-09-26",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "jeweai",
+      "database_id": "933ddb54-ad4f-4a0b-a5da-789d45d971b7",
+      "migrations_dir": "drizzle/migrations"
+    }
+  ]
+}
