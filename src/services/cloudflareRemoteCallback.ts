@@ -33,7 +33,7 @@ const cloudflareRemoteCallback: AsyncRemoteCallback = async (
       throw new Error("Unexpected response format from Cloudflare D1");
     }
 
-    const rows = (firstResult.results || []) as any[];
+    const rows = (firstResult.results || []).map((row: any) => Object.values(row));
 
     return Promise.resolve({ rows });
 

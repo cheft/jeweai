@@ -19,7 +19,7 @@ export const me = os
   .handler(async ({ input, context }: { input: any, context: any }) => { // Type strictness might be needed
     const db = context.db;
     const result = await db.select().from(users).where(eq(users.id, '1111111'))
-    console.log([0], 22222)
+    console.log(result[0], 22222)
     return result[0]
   })
 
