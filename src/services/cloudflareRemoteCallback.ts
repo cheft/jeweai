@@ -1,10 +1,13 @@
 import type { AsyncRemoteCallback } from "drizzle-orm/sqlite-proxy";
 import Cloudflare, { APIError } from "cloudflare";
 
-const { CLOUDFLARE_D1_TOKEN, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_DATABASE_ID } =
-  process.env as {
-    [key: string]: string;
-  };
+import {
+  CLOUDFLARE_D1_TOKEN,
+  CLOUDFLARE_ACCOUNT_ID,
+  CLOUDFLARE_DATABASE_ID,
+} from "$env/static/private";
+
+console.log("D1 =====:", CLOUDFLARE_DATABASE_ID, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_D1_TOKEN);
 
 const client = new Cloudflare({
   apiToken: CLOUDFLARE_D1_TOKEN,
@@ -15,31 +18,27 @@ const cloudflareRemoteCallback: AsyncRemoteCallback = async (
   params: any[],
   method: "run" | "all" | "values" | "get",
 ) => {
+  console.log("D1 Query:", { sql, params, method });
   try {
-    const queryResult = await client.d1.database.raw(CLOUDFLARE_DATABASE_ID, {
+    const queryResult = await client.d1.database.query(CLOUDFLARE_DATABASE_ID, {
       account_id: CLOUDFLARE_ACCOUNT_ID,
       sql: sql,
       params: params,
     });
+    console.log("D1 Result:", JSON.stringify(queryResult, null, 2));
 
-    const result = queryResult.result?.[0]?.results;
+    const firstResult = queryResult.result?.[0];
 
-    if (!result) {
+    if (!firstResult) {
       throw new Error("Unexpected response format from Cloudflare D1");
     }
 
-    const rows = result.rows || [];
-
-    if (method === "get") {
-      if (rows.length === 0) {
-        return Promise.resolve({ rows: [] });
-      }
-      return Promise.resolve({ rows: rows[0] });
-    }
+    const rows = (firstResult.results || []) as any[];
 
     return Promise.resolve({ rows });
 
   } catch (error) {
+    console.error("D1 Error:", error);
     let handledError = String(error);
 
     if (error instanceof APIError) {
