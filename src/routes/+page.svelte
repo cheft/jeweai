@@ -30,7 +30,11 @@
 <StyleSelector />
 <ProductUploader
 	onGenerate={(res) => {
-		videoPreviewComponent?.startGeneration(res.videoAssetId, res.videoTaskId);
+		if (res.type === 'video' && res.videoAssetId && res.videoTaskId) {
+			videoPreviewComponent?.startGeneration(res.videoAssetId, res.videoTaskId);
+		} else if (res.type === 'image' && res.url) {
+			videoPreviewComponent?.showImage(res.url);
+		}
 		const previewElement = document.getElementById('preview-section');
 		previewElement?.scrollIntoView({ behavior: 'smooth' });
 	}}

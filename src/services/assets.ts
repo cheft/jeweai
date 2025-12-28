@@ -4,6 +4,7 @@ import { assets } from '@/drizzle/schema';
 import { eq } from 'drizzle-orm';
 import OpenAI from 'openai';
 import { nanoid } from 'nanoid';
+import fs from 'fs';
 import {
   BUCKET,
   AI_KEY,
@@ -28,14 +29,14 @@ export const generateVideo = os
   )
   .handler(async ({ input, context }: { input: any, context: any }) => {
     const { db, env } = context;
-    // const BUCKET = env?.BUCKET;
-    // const API_KEY = env?.AI_KEY;
+    const bucket = env?.BUCKET || BUCKET;
+    const apiKey = env?.AI_KEY || AI_KEY;
 
-    if (!BUCKET) throw new Error('R2 Bucket not configured');
-    if (!AI_KEY) throw new Error('OPENAI_API_KEY not configured');
+    // if (!bucket || typeof bucket === 'string') throw new Error('R2 Bucket not configured correctly');
+    if (!apiKey) throw new Error('AI_KEY not configured');
 
     const openai = new OpenAI({
-      apiKey: AI_KEY,
+      apiKey: apiKey,
       baseURL: 'https://api.laozhang.ai/v1'
     });
 
@@ -45,7 +46,7 @@ export const generateVideo = os
       const imageBuffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
       const imageId = nanoid()
       const imageKey = `uploads/${imageId}.png`;
-      // await uploadToR2(BUCKET, imageKey, imageBuffer, 'image/png');
+      // await uploadToR2(bucket as R2Bucket, imageKey, imageBuffer, 'image/png');
 
       // 2. Record source asset
       const userId = '1111111'; // TODO: Get from auth context
@@ -96,6 +97,124 @@ export const generateVideo = os
     } catch (error) {
       console.error(error);
       throw new Error('Failed to start video generation');
+    }
+  });
+
+
+export const generateImage = os
+  .input(
+    z.object({
+      image: z.string(),
+      prompt: z.string(),
+      filename: z.string().optional(),
+    })
+  )
+  .handler(async ({ input, context }: { input: any, context: any }) => {
+    const { db, env } = context;
+    const bucket = env?.BUCKET || BUCKET;
+    const apiKey = env?.AI_KEY || AI_KEY;
+
+    // if (!bucket || typeof bucket === 'string') throw new Error('R2 Bucket not configured correctly');
+    if (!apiKey) throw new Error('AI_KEY not configured');
+
+    try {
+      // 1. Process source image
+      const base64Data = input.image.replace(/^data:image\/\w+;base64,/, "");
+      const imageBuffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+      const imageId = nanoid();
+      const imageKey = `uploads/${imageId}.png`;
+      // await uploadToR2(bucket as R2Bucket, imageKey, imageBuffer, 'image/png');
+
+      // 2. Record source asset
+      const userId = '1111111'; // TODO: Get from auth context
+      await db.insert(assets).values({
+        id: imageId,
+        name: input.filename || 'uploaded-image.png',
+        type: 'image',
+        source: 'upload',
+        url: imageKey,
+        path: imageKey,
+        size: imageBuffer.length,
+        mimeType: 'image/png',
+        userId,
+      });
+
+      // 3. Call Gemini API for 4K Image Generation
+      const API_URL = 'https://api.laozhang.ai/v1beta/models/gemini-3-pro-image-preview:generateContent';
+      const payload = {
+        contents: [
+          {
+            parts: [
+              { text: input.prompt },
+              { inline_data: { mime_type: 'image/png', data: base64Data } }
+            ]
+          }
+        ],
+        generationConfig: {
+          responseModalities: ['IMAGE'],
+          imageConfig: {
+            aspectRatio: '9:16',
+            imageSize: '4K'
+          }
+        }
+      };
+
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Gemini API error: ${response.status} ${errorText}`);
+      }
+
+      const result: any = await response.json();
+
+      if (
+        !result.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data
+      ) {
+        throw new Error('Invalid response format from Gemini API');
+      }
+
+      const generatedB64 = result.candidates[0].content.parts[0].inlineData.data;
+      const genBuffer = Uint8Array.from(atob(generatedB64), c => c.charCodeAt(0));
+
+      const generatedAssetId = nanoid();
+      const generatedKey = `generated/${generatedAssetId}.png`;
+      // await uploadToR2(bucket as R2Bucket, generatedKey, genBuffer, 'image/png');
+      // save to loca file
+      fs.writeFileSync(generatedKey, Buffer.from(genBuffer));
+
+      // 4. Record Generated Asset
+      await db.insert(assets).values({
+        id: generatedAssetId,
+        fromAssetId: imageId,
+        name: `generated-${generatedAssetId}.png`,
+        type: 'image',
+        source: 'ai',
+        status: 1, // Active immediately since Gemini returns the image
+        url: generatedKey,
+        path: generatedKey,
+        size: genBuffer.length,
+        mimeType: 'image/png',
+        prompt: input.prompt,
+        userId,
+      });
+
+      return {
+        success: true,
+        assetId: generatedAssetId,
+        url: generatedKey
+      };
+
+    } catch (error) {
+      console.error('generateImage error:', error);
+      throw new Error('Failed to generate image');
     }
   });
 

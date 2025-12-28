@@ -6,11 +6,13 @@
 	let isGenerating = $state(false);
 	let isReady = $state(false);
 	let videoUrl = $state('');
+	let isImage = $state(false);
 
 	export async function startGeneration(videoAssetId: string, videoTaskId: string) {
 		isGenerating = true;
 		isReady = false;
 		videoUrl = '';
+		isImage = false;
 
 		const poll = async () => {
 			try {
@@ -34,6 +36,13 @@
 
 		poll();
 	}
+
+	export function showImage(url: string) {
+		videoUrl = url;
+		isImage = true;
+		isReady = true;
+		isGenerating = false;
+	}
 </script>
 
 <section class="border-t border-white/5 bg-seko-bg py-20">
@@ -56,10 +65,12 @@
 				<div
 					class="group relative aspect-video overflow-hidden rounded-2xl border border-white/10 bg-black shadow-[0_0_50px_rgba(163,230,53,0.15)]"
 				>
-					{#if videoUrl}
+					{#if videoUrl && !isImage}
 						<video src={videoUrl} controls autoplay class="h-full w-full object-contain">
 							<track kind="captions" />
 						</video>
+					{:else if videoUrl && isImage}
+						<img src={videoUrl} alt="Generated 4K Image" class="h-full w-full object-contain" />
 					{:else}
 						<img src={heroBg} alt="Video Thumbnail" class="h-full w-full object-cover" />
 					{/if}
@@ -69,7 +80,7 @@
 					<button
 						class="rounded-lg bg-white/10 px-6 py-3 font-medium text-white transition-colors hover:bg-white/20"
 					>
-						Download Video
+						Download {isImage ? 'Image' : 'Video'}
 					</button>
 					<button
 						class="rounded-lg border border-white/20 px-6 py-3 font-medium text-white transition-colors hover:bg-white/5"

@@ -1,5 +1,5 @@
 import { me, testFile } from "../services/user";
-import { generateVideo, checkStatus } from "../services/assets";
+import { generateVideo, checkStatus, generateImage } from "../services/assets";
 
 export const router = {
   user: {
@@ -8,6 +8,7 @@ export const router = {
   },
   assets: {
     generateVideo,
+    generateImage,
     checkStatus,
   },
 };

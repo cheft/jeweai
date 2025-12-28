@@ -2,18 +2,30 @@
 	import { client } from '$lib/orpc';
 
 	let { onGenerate } = $props<{
-		onGenerate?: (res: { videoAssetId: string; videoTaskId: string }) => void;
+		onGenerate?: (res: {
+			videoAssetId?: string;
+			videoTaskId?: string;
+			assetId?: string;
+			url?: string;
+			type: 'video' | 'image';
+		}) => void;
 	}>();
 
 	let dragOver = $state(false);
 	let file: File | null = $state(null);
-	let prompt = $state('请根据此珠定生成模特佩戴的场景，请进行介绍生成营销广告片。');
+	let prompt = $state(
+		'请你是一个专业的TVC广告分镜师，图中的产品是我这次TVC广告的主要展示产品，请你设计为这款产品设计一个展示珠宝极致美感的有点夸张的剧情故事，主人公是一个黑发亚洲美女，做成九宫格的分镜图， 每个镜头的分辨率是720x1280，输出图的总分辨率是2160x3840，比例都是9:16竖版的，要求是黑白线稿风格，但产品需保证真实的色彩，且要保持产品的一致'
+	);
+	// 你是一位专业的电视广告大师，请使用图片中的九个分镜图，制作一个15秒的真人实拍电视广告视频，主人公是一个黑发的亚洲美女，展现一个极具创意的故事，请添加中文配音，保持产品的一致性，整个画面全部都是实拍风格
+
 	let loading = $state(false);
+	let generationType: 'video' | 'image' | null = $state(null);
 
 	async function generateVideo() {
 		if (!file || !prompt) return;
 
 		loading = true;
+		generationType = 'video';
 		try {
 			const reader = new FileReader();
 			reader.onload = async (e) => {
@@ -26,10 +38,42 @@
 						filename: file?.name || 'unknown.png'
 					});
 					console.log('Generation started:', res);
-					if (onGenerate) onGenerate(res);
+					if (onGenerate) onGenerate({ ...res, type: 'video' });
 				} catch (err) {
 					console.error('RPC Error:', err);
 					alert('Failed to start generation');
+				} finally {
+					loading = false;
+				}
+			};
+			reader.readAsDataURL(file);
+		} catch (error) {
+			console.error(error);
+			loading = false;
+		}
+	}
+
+	async function generateImage() {
+		if (!file || !prompt) return;
+
+		loading = true;
+		generationType = 'image';
+		try {
+			const reader = new FileReader();
+			reader.onload = async (e) => {
+				const base64Image = e.target?.result as string;
+
+				try {
+					const res = await client.assets.generateImage({
+						image: base64Image,
+						prompt: prompt,
+						filename: file?.name || 'unknown.png'
+					});
+					console.log('Image generated:', res);
+					if (onGenerate) onGenerate({ ...res, type: 'image' });
+				} catch (err) {
+					console.error('RPC Error:', err);
+					alert('Failed to generate image');
 				} finally {
 					loading = false;
 				}
@@ -152,13 +196,22 @@
 				</div>
 			</div>
 
-			<button
-				class="w-full transform rounded-xl bg-gradient-to-r from-seko-accent to-seko-purple px-8 py-4 font-bold text-white shadow-lg transition-all hover:scale-105 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 md:w-auto"
-				disabled={!file || loading}
-				onclick={generateVideo}
-			>
-				{loading ? 'Generating...' : 'Generate Video'}
-			</button>
+			<div class="mt-8 flex flex-col gap-4 md:flex-row">
+				<button
+					class="w-full transform rounded-xl bg-gradient-to-r from-seko-accent to-seko-purple px-8 py-4 font-bold text-white shadow-lg transition-all hover:scale-105 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+					disabled={!file || loading}
+					onclick={generateVideo}
+				>
+					{loading && generationType === 'video' ? 'Generating Video...' : 'Generate 15s Video'}
+				</button>
+				<button
+					class="w-full transform rounded-xl border border-white/20 bg-white/5 px-8 py-4 font-bold text-white shadow-lg transition-all hover:scale-105 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+					disabled={!file || loading}
+					onclick={generateImage}
+				>
+					{loading && generationType === 'image' ? 'Generating 4K Image...' : 'Generate 4K Image'}
+				</button>
+			</div>
 		</div>
 	</div>
 </section>
