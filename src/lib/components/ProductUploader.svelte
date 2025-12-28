@@ -1,7 +1,45 @@
 <script lang="ts">
+	import { client } from '$lib/orpc';
+
+	let { onGenerate } = $props<{
+		onGenerate?: (res: { videoAssetId: string; videoTaskId: string }) => void;
+	}>();
+
 	let dragOver = $state(false);
 	let file: File | null = $state(null);
-	let prompt = $state('');
+	let prompt = $state('请根据此珠定生成模特佩戴的场景，请进行介绍生成营销广告片。');
+	let loading = $state(false);
+
+	async function generateVideo() {
+		if (!file || !prompt) return;
+
+		loading = true;
+		try {
+			const reader = new FileReader();
+			reader.onload = async (e) => {
+				const base64Image = e.target?.result as string;
+
+				try {
+					const res = await client.assets.generateVideo({
+						image: base64Image,
+						prompt: prompt,
+						filename: file?.name || 'unknown.png'
+					});
+					console.log('Generation started:', res);
+					if (onGenerate) onGenerate(res);
+				} catch (err) {
+					console.error('RPC Error:', err);
+					alert('Failed to start generation');
+				} finally {
+					loading = false;
+				}
+			};
+			reader.readAsDataURL(file);
+		} catch (error) {
+			console.error(error);
+			loading = false;
+		}
+	}
 
 	function handleDrop(e: DragEvent) {
 		e.preventDefault();
@@ -19,23 +57,23 @@
 	}
 </script>
 
-<section class="py-20 bg-black/30 relative border-t border-white/5">
-	<div class="container mx-auto px-4 max-w-4xl">
-		<div class="text-center mb-12">
-			<h2 class="text-3xl md:text-5xl font-bold mb-4 text-white">Upload Your Product</h2>
-			<p class="text-gray-400 max-w-2xl mx-auto">
+<section class="relative border-t border-white/5 bg-black/30 py-20">
+	<div class="container mx-auto max-w-4xl px-4">
+		<div class="mb-12 text-center">
+			<h2 class="mb-4 text-3xl font-bold text-white md:text-5xl">Upload Your Product</h2>
+			<p class="mx-auto max-w-2xl text-gray-400">
 				Upload a high-quality image of your jewelry and describe the ad you want.
 			</p>
 		</div>
 
-		<div class="bg-seko-bg border border-white/10 rounded-3xl p-8 md:p-12 shadow-2xl">
-			<div class="grid md:grid-cols-2 gap-8">
+		<div class="rounded-3xl border border-white/10 bg-seko-bg p-8 shadow-2xl md:p-12">
+			<div class="grid gap-8 md:grid-cols-2">
 				<!-- Image Upload Area -->
 				<div
-					class="relative border-2 border-dashed rounded-2xl flex flex-col items-center justify-center p-8 transition-all duration-300
+					class="relative flex flex-col items-center justify-center rounded-2xl border-2 border-dashed p-8 transition-all duration-300
                     {dragOver
 						? 'border-seko-accent bg-seko-accent/5'
-						: 'border-white/20 hover:border-white/40 bg-white/5'}"
+						: 'border-white/20 bg-white/5 hover:border-white/40'}"
 					ondragover={(e) => {
 						e.preventDefault();
 						dragOver = true;
@@ -48,14 +86,14 @@
 					<input
 						type="file"
 						accept="image/*"
-						class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+						class="absolute inset-0 h-full w-full cursor-pointer opacity-0"
 						onchange={handleFileSelect}
 					/>
 
 					{#if file}
 						<div class="text-center">
 							<div
-								class="w-16 h-16 mx-auto bg-seko-accent/20 text-seko-accent rounded-full flex items-center justify-center mb-4"
+								class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-seko-accent/20 text-seko-accent"
 							>
 								<svg
 									xmlns="http://www.w3.org/2000/svg"
@@ -66,17 +104,16 @@
 									stroke="currentColor"
 									stroke-width="2"
 									stroke-linecap="round"
-									stroke-linejoin="round"
-									><path d="M20 6 9 17l-5-5" /></svg
+									stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg
 								>
 							</div>
-							<p class="text-white font-medium truncate max-w-[200px]">{file.name}</p>
-							<p class="text-sm text-gray-400 mt-1">Click to change</p>
+							<p class="max-w-[200px] truncate font-medium text-white">{file.name}</p>
+							<p class="mt-1 text-sm text-gray-400">Click to change</p>
 						</div>
 					{:else}
 						<div class="text-center">
 							<div
-								class="w-16 h-16 mx-auto bg-white/10 text-white rounded-full flex items-center justify-center mb-4"
+								class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-white/10 text-white"
 							>
 								<svg
 									xmlns="http://www.w3.org/2000/svg"
@@ -95,34 +132,33 @@
 									/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" /></svg
 								>
 							</div>
-							<p class="text-white font-medium">Drop image here</p>
-							<p class="text-sm text-gray-400 mt-1">or click to browse</p>
+							<p class="font-medium text-white">Drop image here</p>
+							<p class="mt-1 text-sm text-gray-400">or click to browse</p>
 						</div>
 					{/if}
 				</div>
 
 				<!-- Text Input Area -->
 				<div class="flex flex-col">
-					<label for="prompt" class="text-sm font-medium text-gray-300 mb-2"
+					<label for="prompt" class="mb-2 text-sm font-medium text-gray-300"
 						>Ad Copy / Instructions</label
 					>
 					<textarea
 						id="prompt"
 						bind:value={prompt}
 						placeholder="E.g. 'Showcase the sparkle of the diamond with slow motion camera movements. Elegant and timeless vibe.'"
-						class="flex-grow w-full bg-white/5 border border-white/10 rounded-xl p-4 text-white placeholder-gray-500 focus:outline-none focus:border-seko-accent focus:ring-1 focus:ring-seko-accent resize-none transition-all"
+						class="w-full flex-grow resize-none rounded-xl border border-white/10 bg-white/5 p-4 text-white placeholder-gray-500 transition-all focus:border-seko-accent focus:ring-1 focus:ring-seko-accent focus:outline-none"
 					></textarea>
 				</div>
 			</div>
 
-			<div class="mt-8 flex justify-end">
-				<button
-					class="w-full md:w-auto px-8 py-4 bg-gradient-to-r from-seko-accent to-seko-purple text-white font-bold rounded-xl hover:opacity-90 transition-all transform hover:scale-105 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-					disabled={!file}
-				>
-					Generate Video
-				</button>
-			</div>
+			<button
+				class="w-full transform rounded-xl bg-gradient-to-r from-seko-accent to-seko-purple px-8 py-4 font-bold text-white shadow-lg transition-all hover:scale-105 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 md:w-auto"
+				disabled={!file || loading}
+				onclick={generateVideo}
+			>
+				{loading ? 'Generating...' : 'Generate Video'}
+			</button>
 		</div>
 	</div>
 </section>

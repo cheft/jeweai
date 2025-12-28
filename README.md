@@ -60,3 +60,10 @@ You can preview the production build with `npm run preview`.
 - https://www.hostinger.com/referral?REFERRALCODE=0HYDUANGTXSO
 - https://bunny.net/
 - https://cloudflare.com cdn
+
+
+## Drizzle kit
+```bash
+  npx drizzle-kit push
+
+```

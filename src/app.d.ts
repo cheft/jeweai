@@ -9,6 +9,8 @@ declare global {
 		interface Platform {
 			env: {
 				DB: D1Database;
+				BUCKET: R2Bucket;
+				AI_KEY: string;
 			};
 		}
 	}

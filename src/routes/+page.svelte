@@ -28,14 +28,13 @@
 
 <Hero />
 <StyleSelector />
-<div
-	onclick={handleGenerate}
-	onkeydown={(e) => e.key === 'Enter' && handleGenerate()}
-	role="button"
-	tabindex="0"
->
-	<ProductUploader />
-</div>
+<ProductUploader
+	onGenerate={(res) => {
+		videoPreviewComponent?.startGeneration(res.videoAssetId, res.videoTaskId);
+		const previewElement = document.getElementById('preview-section');
+		previewElement?.scrollIntoView({ behavior: 'smooth' });
+	}}
+/>
 <div id="preview-section">
 	<VideoPreview bind:this={videoPreviewComponent} />
 </div>

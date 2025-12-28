@@ -10,6 +10,7 @@ export const GET: RequestHandler = async ({ request, platform }) => {
     prefix: "/rpc",
     context: {
       db: db,
+      env: platform?.env,
     },
   });
 
