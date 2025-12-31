@@ -1,1 +1,3 @@
-./asynqmon --redis-addr=你的RedisIP:6379 --redis-password=你的Redis密码（无则省略）
+./asynqmon --redis-addr=127.0.0.1:6379 --redis-db=1 --redis-password=eYVX7EwVmmxKPCDmwMtyKVge8oLd2t81
+
+.\asynqmon.exe --redis-addr=127.0.0.1:6379 --redis-db=1 --redis-password=eYVX7EwVmmxKPCDmwMtyKVge8oLd2t81

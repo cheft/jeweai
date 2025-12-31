@@ -49,7 +49,7 @@ func NewServer() *asynq.Server {
 	redisClient := asynq.RedisClientOpt{
 		Addr:     "127.0.0.1:6379",
 		Password: "eYVX7EwVmmxKPCDmwMtyKVge8oLd2t81",
-		DB:       0,
+		DB:       1,
 	}
 
 	// 创建 Server
