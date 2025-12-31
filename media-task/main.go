@@ -96,9 +96,9 @@ func main() {
 		ctx := context.TODO()
 		bucketName := os.Getenv("R2_BUCKET")
 		if bucketName == "" {
-			bucketName = "jeweai" // Default or placeholder
+			bucketName = "covers" // Default or placeholder
 		}
-		objectKey := fmt.Sprintf("public/%d_sync_test.jpg", time.Now().Unix())
+		objectKey := fmt.Sprintf("userid123456/%d_sync_test.jpg", time.Now().Unix())
 
 		err := uploadToR2(ctx, filePath, bucketName, objectKey)
 		if err != nil {
@@ -118,10 +118,10 @@ func main() {
 // cloudflare-go 用于管理和验证，AWS SDK 用于实际文件上传（S3 兼容 API）
 func uploadToR2(ctx context.Context, filePath, bucketName, objectKey string) error {
 
-	// accountID := os.Getenv("CLOUDFLARE_ACCOUNT_ID")
-	// accessKeyID := os.Getenv("R2_ACCESS_KEY_ID")
-	// secretAccessKey := os.Getenv("R2_SECRET_ACCESS_KEY")
-	// r2Token := os.Getenv("CLOUDFLARE_R2_TOKEN")
+	accountID := os.Getenv("CLOUDFLARE_ACCOUNT_ID")
+	accessKeyID := os.Getenv("R2_ACCESS_KEY_ID")
+	secretAccessKey := os.Getenv("R2_SECRET_ACCESS_KEY")
+	r2Token := os.Getenv("CLOUDFLARE_R2_TOKEN")
 
 	if accountID == "" || accessKeyID == "" || secretAccessKey == "" {
 		return fmt.Errorf("missing R2 credentials (CLOUDFLARE_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY)")
@@ -162,10 +162,27 @@ func uploadToR2(ctx context.Context, filePath, bucketName, objectKey string) err
 
 	fmt.Printf("Uploading %s to R2 bucket %s as %s...\n", filePath, bucketName, objectKey)
 
+	// 根据文件扩展名设置 Content-Type
+	contentType := "application/octet-stream" // 默认值
+	if len(objectKey) > 4 {
+		ext := objectKey[len(objectKey)-4:]
+		switch ext {
+		case ".jpg", ".jpeg":
+			contentType = "image/jpeg"
+		case ".png":
+			contentType = "image/png"
+		case ".gif":
+			contentType = "image/gif"
+		case ".webp":
+			contentType = "image/webp"
+		}
+	}
+
 	_, err = client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(bucketName),
-		Key:    aws.String(objectKey),
-		Body:   file,
+		Bucket:      aws.String(bucketName),
+		Key:         aws.String(objectKey),
+		Body:        file,
+		ContentType: aws.String(contentType),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to upload object: %v", err)
