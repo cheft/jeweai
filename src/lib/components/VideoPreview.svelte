@@ -70,7 +70,7 @@
 							<track kind="captions" />
 						</video>
 					{:else if videoUrl && isImage}
-						<img src={videoUrl} alt="Generated 4K Image" class="h-full w-full object-contain" />
+						<img src={videoUrl} alt="Generated 4K" class="h-full w-full object-contain" />
 					{:else}
 						<img src={heroBg} alt="Video Thumbnail" class="h-full w-full object-cover" />
 					{/if}

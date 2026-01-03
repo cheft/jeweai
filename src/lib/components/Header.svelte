@@ -42,7 +42,7 @@
 				href="/pricing"
 				class="text-sm font-medium text-gray-300 transition-colors hover:text-white">Pricing</a
 			>
-			<a href="#" class="text-sm font-medium text-gray-300 transition-colors hover:text-white"
+			<a href="/about" class="text-sm font-medium text-gray-300 transition-colors hover:text-white"
 				>About</a
 			>
 		</nav>

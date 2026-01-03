@@ -15,7 +15,7 @@
   ],
   "r2_buckets": [
     {
-      "binding": "covers",
+      "binding": "R2_PUBLIC_BUCKET",
       "bucket_name": "covers"
     }
   ]

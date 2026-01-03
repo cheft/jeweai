@@ -30,8 +30,10 @@
 		class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
 		transition:fade={{ duration: 200 }}
 		onclick={handleOutsideClick}
+		onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && handleOutsideClick(e as any)}
 		role="dialog"
 		aria-modal="true"
+		tabindex="-1"
 	>
 		<div
 			class="relative w-full max-w-md overflow-hidden rounded-3xl border border-white/10 bg-seko-bg shadow-2xl"
@@ -107,11 +109,11 @@
 				</div>
 
 				<div class="mt-6 text-center text-sm text-gray-500">
-					By continuing, you agree to our <a href="#" class="text-white hover:underline"
+					By continuing, you agree to our <a href="/terms" class="text-white hover:underline"
 						>Terms of Service</a
 					>
 					and
-					<a href="#" class="text-white hover:underline">Privacy Policy</a>.
+					<a href="/privacy" class="text-white hover:underline">Privacy Policy</a>.
 				</div>
 			</div>
 
@@ -119,6 +121,7 @@
 			<button
 				class="absolute top-4 right-4 z-50 p-2 text-gray-400 transition-colors hover:text-white"
 				onclick={onClose}
+				aria-label="Close modal"
 			>
 				<svg
 					xmlns="http://www.w3.org/2000/svg"

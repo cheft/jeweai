@@ -2,24 +2,48 @@ import { os, ORPCError } from '@orpc/server';
 import { z } from 'zod';
 import { tasks } from '@/drizzle/schema';
 import { nanoid } from 'nanoid';
+import {
+  CLOUDFLARE_ACCOUNT_ID,
+  CLOUDFLARE_R2_TOKEN,
+  CLOUDFLARE_D1_TOKEN,
+  R2_ACCESS_KEY_ID,
+  R2_SECRET_ACCESS_KEY,
+  R2_ENDPOINT,
+  R2_BUCKET,
+  R2_PUBLIC_BUCKET,
+} from "$env/static/private";
 
-// Helper to upload to R2
-async function uploadToR2(bucket: any, key: string, data: Uint8Array, contentType: string) {
-  console.log(`[R2] Attempting to upload to key: ${key}, size: ${data.length}, contentType: ${contentType}`);
-  if (!bucket || typeof bucket.put !== 'function') {
-    console.error('[R2] Critical: Bucket not available or binding is missing! This usually happens in local dev if platform.env is not populated.');
-    return key;
-  }
+// Helper to upload to R2 using Cloudflare API
+async function uploadToR2(key: string, data: Uint8Array, contentType: string) {
+  console.log(`[R2] Uploading to key: ${key}, size: ${data.length}`);
+
+  // Standard R2 keys usually don't start with /.
+  const safeKey = key.startsWith('/') ? key.slice(1) : key;
+  const currentBucket = R2_PUBLIC_BUCKET || 'covers';
+  const url = `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${currentBucket}/objects/${safeKey}`;
+
   try {
-    await bucket.put(key, data, {
-      httpMetadata: { contentType },
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${CLOUDFLARE_R2_TOKEN}`,
+        'Content-Type': contentType,
+      },
+      body: data as any
     });
-    console.log(`[R2] Successfully uploaded to key: ${key}`);
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error(`[R2] API Upload failed: ${res.status} ${errorText}`);
+      throw new Error(`R2 API Upload failed: ${res.status}`);
+    }
+
+    console.log(`[R2] Successfully uploaded via API to key: ${key}`);
+    return key;
   } catch (err) {
     console.error(`[R2] Upload failed for key ${key}:`, err);
     throw err;
   }
-  return key;
 }
 
 export const create = os
@@ -33,9 +57,7 @@ export const create = os
     })
   )
   .handler(async ({ input, context }: { input: any, context: any }) => {
-    const { db, env } = context;
-    console.log('[Task Service] Context Env keys:', env ? Object.keys(env) : 'undefined');
-    const bucket = env?.R2_PUBLIC_BUCKET;
+    const { db } = context;
     const userId = 'user_123456'; // TODO: Get from auth context
 
     try {
@@ -48,7 +70,7 @@ export const create = os
         const safeFilename = (input.filename || 'input.png').replace(/[^a-zA-Z0-9.]/g, '_');
         imageKey = `/temp/${userId}/${id}_${safeFilename}`;
 
-        await uploadToR2(bucket, imageKey, imageBuffer, 'image/png');
+        await uploadToR2(imageKey, imageBuffer, 'image/png');
       }
 
       // 2. Call Golang Service
