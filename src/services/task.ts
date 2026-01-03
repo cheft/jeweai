@@ -134,10 +134,21 @@ export const create = os
     }
   });
 
+import { desc, eq } from 'drizzle-orm';
+
 export const list = os
   .handler(async ({ context }: { context: any }) => {
     const { db } = context;
     const userId = 'user_123456'; // TODO: auth
-    // This could serve the /timeline page
-    return await db.select().from(tasks)/*.where(eq(tasks.userId, userId))*/;
+
+    // Fetch tasks from database
+    const allTasks = await db.select()
+      .from(tasks)
+      .where(eq(tasks.userId, userId))
+      .orderBy(desc(tasks.createdAt));
+
+    return allTasks.map((t: any) => ({
+      ...t,
+      thumbnail: t.thumbnailUrl,
+    }));
   });

@@ -53,13 +53,17 @@ func main() {
 			return c.Status(400).JSON(fiber.Map{"error": "Invalid payload"})
 		}
 
+		taskID := fmt.Sprintf("task_%d", time.Now().UnixNano())
+		payload.TaskID = taskID
+
 		imgPayload, _ := json.Marshal(payload)
-		taskImg := asynq.NewTask(TaskTypeImageGenerate, imgPayload, asynq.Timeout(60*time.Second))
-		info, err := client.Enqueue(taskImg, asynq.Queue("media"))
+		taskImg := asynq.NewTask(TaskTypeImageGenerate, imgPayload, asynq.Timeout(60*time.Second), asynq.TaskID(taskID))
+		_, err := client.Enqueue(taskImg, asynq.Queue("media"))
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": fmt.Sprintf("Enqueue error (Image): %v", err)})
 		}
-		return c.JSON(fiber.Map{"taskId": info.ID})
+
+		return c.JSON(fiber.Map{"taskId": taskID})
 	})
 
 	// 2.2 路由：添加视频任务
@@ -69,18 +73,22 @@ func main() {
 			return c.Status(400).JSON(fiber.Map{"error": "Invalid payload"})
 		}
 
+		taskID := fmt.Sprintf("task_%d", time.Now().UnixNano())
+		payload.TaskID = taskID
+
 		videoID := fmt.Sprintf("vid_%d", time.Now().Unix())
 		payload.VideoID = videoID
 
 		genPayload, _ := json.Marshal(payload)
-		taskGen := asynq.NewTask(TaskTypeVideoGenerate, genPayload, asynq.Timeout(30*time.Second))
-		info, err := client.Enqueue(taskGen, asynq.Queue("media"))
+		taskGen := asynq.NewTask(TaskTypeVideoGenerate, genPayload, asynq.Timeout(30*time.Second), asynq.TaskID(taskID))
+		_, err := client.Enqueue(taskGen, asynq.Queue("media"))
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": fmt.Sprintf("Enqueue error (Video Gen): %v", err)})
 		}
 
 		// 2.3 入队状态检查任务 (延迟 5 秒)
 		checkPayload, _ := json.Marshal(VideoCheckStatusPayload{
+			TaskID:  taskID,
 			VideoID: videoID,
 		})
 		taskCheck := asynq.NewTask(TaskTypeVideoCheckStatus, checkPayload, asynq.Timeout(300*time.Second))
@@ -88,7 +96,7 @@ func main() {
 			return c.Status(500).JSON(fiber.Map{"error": fmt.Sprintf("Enqueue error (Video Check): %v", err)})
 		}
 
-		return c.JSON(fiber.Map{"taskId": info.ID, "videoId": videoID})
+		return c.JSON(fiber.Map{"taskId": taskID, "videoId": videoID})
 	})
 
 	// 2.3 路由：测试上传文件到 R2

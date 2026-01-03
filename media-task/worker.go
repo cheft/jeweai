@@ -1,17 +1,39 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
 	"image/jpeg"
+	"net/http"
 	"os"
 	"time"
 
 	"github.com/hibiken/asynq"
 )
+
+// Helper to update task status in SvelteKit
+func updateTaskStatus(taskId string, status string, resultUrl string, thumbnailUrl string) {
+	url := "http://localhost:5173/api/task/update"
+	payload := map[string]string{
+		"taskId":       taskId,
+		"status":       status,
+		"resultUrl":    resultUrl,
+		"thumbnailUrl": thumbnailUrl,
+	}
+	jsonData, _ := json.Marshal(payload)
+
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		fmt.Printf("[Webhook Error] Failed to update status: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+	fmt.Printf("[Webhook] Status updated to %s for task %s (Response: %d)\n", status, taskId, resp.StatusCode)
+}
 
 // 定义任务类型常量
 const (
@@ -26,6 +48,7 @@ const (
 // --------------- 任务有效载荷 ---------------
 // ImageGeneratePayload 图片生成任务参数
 type ImageGeneratePayload struct {
+	TaskID    string
 	ImagePath string
 	Width     int
 	Height    int
@@ -36,6 +59,7 @@ type ImageGeneratePayload struct {
 
 // VideoGeneratePayload 视频生成任务参数
 type VideoGeneratePayload struct {
+	TaskID    string
 	VideoID   string
 	Prompt    string
 	ImagePath string
@@ -44,6 +68,7 @@ type VideoGeneratePayload struct {
 
 // VideoCheckStatusPayload 视频状态检查任务参数
 type VideoCheckStatusPayload struct {
+	TaskID  string
 	VideoID string
 }
 
@@ -75,6 +100,8 @@ func HandleImageGenerateTask(ctx context.Context, t *asynq.Task) error {
 	}
 
 	fmt.Printf("\n=== [ASYNCHRONOUS] Starting Image Generation ===\n")
+	updateTaskStatus(p.TaskID, "execute", "", "")
+
 	fmt.Printf("Path: %s, Name: %s\n", p.ImagePath, p.ImgName)
 
 	img := image.NewRGBA(image.Rect(0, 0, p.Width, p.Height))
@@ -97,8 +124,10 @@ func HandleImageGenerateTask(ctx context.Context, t *asynq.Task) error {
 		return err
 	}
 
-	// 模拟处理耗时 (40秒)
-	time.Sleep(40 * time.Second)
+	// 模拟处理耗时 (10秒)
+	time.Sleep(10 * time.Second)
+
+	updateTaskStatus(p.TaskID, "complete", p.ImagePath, p.ImagePath)
 	fmt.Printf("=== [ASYNCHRONOUS] Image Generation COMPLETED ===\n\n")
 	return nil
 }
@@ -112,7 +141,8 @@ func HandleVideoGenerateTask(ctx context.Context, t *asynq.Task) error {
 
 	fmt.Printf("=== [ASYNCHRONOUS] Starting Video Generation ===\n")
 	fmt.Printf("Video ID: %s\n", p.VideoID)
-	fmt.Printf("Prompt:   %s\n", p.Prompt)
+
+	updateTaskStatus(p.TaskID, "execute", "", "")
 
 	// 模拟请求外部 API 的耗时
 	time.Sleep(2 * time.Second)
@@ -131,8 +161,12 @@ func HandleVideoCheckStatusTask(ctx context.Context, t *asynq.Task) error {
 	fmt.Printf("=== [ASYNCHRONOUS] Checking Video Status ===\n")
 	fmt.Printf("Video ID: %s\n", p.VideoID)
 
-	// 模拟检查逻辑 (240秒)
-	time.Sleep(240 * time.Second)
-	fmt.Printf("=== [ASYNCHRONOUS] Status: COMPLETED. URL: https://r2.example.com/videos/%s.mp4 ===\n\n", p.VideoID)
+	// 模拟检查逻辑
+	time.Sleep(20 * time.Second)
+
+	resultUrl := fmt.Sprintf("https://r2.example.com/videos/%s.mp4", p.VideoID)
+	updateTaskStatus(p.TaskID, "complete", resultUrl, resultUrl)
+
+	fmt.Printf("=== [ASYNCHRONOUS] Status: COMPLETED. URL: %s ===\n\n", resultUrl)
 	return nil
 }

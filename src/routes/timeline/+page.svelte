@@ -1,77 +1,31 @@
 <script lang="ts">
 	import { fade } from 'svelte/transition';
 	import { Clock, Play, Sparkles } from 'lucide-svelte';
+	import { client } from '$lib/orpc';
+	import { onDestroy, onMount } from 'svelte';
 
-	// Mock Data with specific dates for grouping
-	const now = new Date();
-	const yesterday = new Date(now);
-	yesterday.setDate(now.getDate() - 1);
-	const twoDaysAgo = new Date(now);
-	twoDaysAgo.setDate(now.getDate() - 2);
+	let tasks = $state<any[]>([]);
+	let isLoading = $state(true);
+	let interval: any;
 
-	const videos = [
-		{
-			id: '1',
-			status: 'completed',
-			thumbnail:
-				'https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?q=80&w=600&auto=format&fit=crop', // Cyberpunk city
-			prompt: 'A futuristic city with neon lights and flying cars, cyberpunk style',
-			referenceImage:
-				'https://images.unsplash.com/photo-1480796927426-f609979314bd?q=80&w=200&auto=format&fit=crop',
-			duration: '0:15',
-			createdAt: new Date(now.setHours(14, 30, 0)) // Today 14:30
-		},
-		{
-			id: '2',
-			status: 'generating',
-			thumbnail: null,
-			prompt: 'Portrait of a warrior princess in golden armor',
-			referenceImage:
-				'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop',
-			duration: null,
-			createdAt: new Date(now.setHours(13, 15, 0)) // Today 13:15
-		},
-		{
-			id: '3',
-			status: 'queued',
-			thumbnail: null,
-			prompt: 'Peaceful zen garden with cherry blossoms falling',
-			referenceImage:
-				'https://images.unsplash.com/photo-1599708153386-62e589855b7f?q=80&w=200&auto=format&fit=crop',
-			duration: null,
-			createdAt: new Date(yesterday.setHours(16, 20, 0)) // Yesterday 16:20
-		},
-		{
-			id: '4',
-			status: 'completed',
-			thumbnail:
-				'https://images.unsplash.com/photo-1478720568477-152d9b164e63?q=80&w=600&auto=format&fit=crop', // Cinematic nature
-			prompt: 'Cinematic drone shot of a misty mountain range at sunrise',
-			referenceImage:
-				'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?q=80&w=200&auto=format&fit=crop',
-			duration: '0:10',
-			createdAt: new Date(yesterday.setHours(9, 45, 0)) // Yesterday 09:45
-		},
-		{
-			id: '5',
-			status: 'completed',
-			thumbnail:
-				'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?q=80&w=600&auto=format&fit=crop', // Tech
-			prompt: 'Macro shot of a computer circuit board with glowing data streams',
-			referenceImage:
-				'https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=200&auto=format&fit=crop',
-			duration: '0:08',
-			createdAt: new Date(twoDaysAgo.setHours(18, 10, 0)) // 2 Days ago 18:10
-		},
-		{
-			id: '6',
-			status: 'queued',
-			prompt: 'Cute cat astronaut floating in zero gravity',
-			referenceImage:
-				'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?q=80&w=200&auto=format&fit=crop',
-			createdAt: new Date(twoDaysAgo.setHours(10, 5, 0))
+	const fetchTasks = async () => {
+		try {
+			tasks = await client.task.list();
+		} catch (err) {
+			console.error('Failed to fetch tasks:', err);
+		} finally {
+			isLoading = false;
 		}
-	];
+	};
+
+	onMount(() => {
+		fetchTasks();
+		interval = setInterval(fetchTasks, 5000);
+	});
+
+	onDestroy(() => {
+		if (interval) clearInterval(interval);
+	});
 
 	// Helper to format time (HH:mm:ss)
 	function formatTime(date: Date) {
@@ -84,10 +38,10 @@
 	}
 
 	// Helper to group videos by date
-	function groupVideosByDate(videosList: typeof videos) {
-		const groups: Record<string, typeof videos> = {};
+	function groupVideosByDate(videosList: any[]) {
+		const groups: Record<string, any[]> = {};
 
-		videosList.forEach((video) => {
+		videosList.forEach((video: any) => {
 			const date = video.createdAt;
 			const today = new Date();
 			const yesterdayDate = new Date();
@@ -126,7 +80,7 @@
 		});
 	}
 
-	let groupedVideos = $derived(groupVideosByDate(videos));
+	let groupedVideos = $derived(groupVideosByDate(tasks));
 </script>
 
 <div class="min-h-screen bg-seko-bg p-4 pt-12 md:p-8 md:pt-16">
@@ -145,7 +99,7 @@
 				<span
 					class="rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-sm font-medium text-gray-300 backdrop-blur-sm"
 				>
-					{videos.length} Creations
+					{tasks.length} Creations
 				</span>
 			</div>
 		</div>
