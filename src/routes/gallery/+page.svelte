@@ -1,5 +1,6 @@
 <script lang="ts">
 	import GalleryGrid from '$lib/components/GalleryGrid.svelte';
+	import { client } from '$lib/orpc';
 	import { slide, fly, fade, scale } from 'svelte/transition';
 	import { cubicOut, backOut, quintOut } from 'svelte/easing';
 	import galleryRing from '$lib/assets/gallery-ring.png';
@@ -17,6 +18,40 @@
 	let uploadedImage: string | null = null;
 	let fileInput: HTMLInputElement;
 	let selectedStyle: { id: string; name: string; thumbnail: any } | null = null;
+	let isGenerating = false;
+
+	async function handleGenerate() {
+		if (!prompt.trim() && !uploadedImage) {
+			alert('请输入提示词或上传参考图片');
+			return;
+		}
+
+		isGenerating = true;
+		try {
+			const payload = {
+				image: uploadedImage || undefined,
+				prompt,
+				styleId: selectedStyle?.id,
+				isImageOnly,
+				filename: 'reference_image.png'
+			};
+
+			const res = await client.task.create(payload);
+
+			console.log('Generation result:', res);
+			alert('生成请求已提交！任务ID: ' + res.taskId);
+
+			// Optional: Clear inputs after success
+			// prompt = '';
+			// uploadedImage = null;
+			// selectedStyle = null;
+		} catch (error) {
+			console.error('Generation Error:', error);
+			alert('生成失败，请检查后端服务是否正常运行');
+		} finally {
+			isGenerating = false;
+		}
+	}
 
 	const styles = [
 		{ id: '1', name: '美式卡通', thumbnail: styleLuxury },
@@ -414,33 +449,46 @@
 
 					<div class="flex items-center space-x-6">
 						<button
-							class="flex h-12 w-12 items-center justify-center rounded-full bg-gray-800 text-gray-400 shadow-lg transition-all duration-300 hover:scale-110 hover:bg-seko-accent hover:text-black hover:shadow-seko-accent/30 active:scale-95"
-							on:click={() => {
-								if (!prompt.trim() && !uploadedImage) {
-									alert('Please enter a prompt or upload an image!');
-									return;
-								}
-								console.log('Generating with:', {
-									prompt,
-									uploadedImage,
-									isImageOnly,
-									selectedStyle
-								});
-								alert('Generation started!');
-							}}
+							class="flex h-12 w-12 items-center justify-center rounded-full bg-gray-800 text-gray-400 shadow-lg transition-all duration-300 hover:scale-110 hover:bg-seko-accent hover:text-black hover:shadow-seko-accent/30 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+							on:click={handleGenerate}
+							disabled={isGenerating}
 						>
-							<svg
-								xmlns="http://www.w3.org/2000/svg"
-								width="24"
-								height="24"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="2.5"
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								class="lucide lucide-arrow-up"><path d="m5 12 7-7 7 7" /><path d="M12 19V5" /></svg
-							>
+							{#if isGenerating}
+								<svg
+									class="h-5 w-5 animate-spin"
+									xmlns="http://www.w3.org/2000/svg"
+									fill="none"
+									viewBox="0 0 24 24"
+								>
+									<circle
+										class="opacity-25"
+										cx="12"
+										cy="12"
+										r="10"
+										stroke="currentColor"
+										stroke-width="4"
+									></circle>
+									<path
+										class="opacity-75"
+										fill="currentColor"
+										d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+									></path>
+								</svg>
+							{:else}
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									width="24"
+									height="24"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2.5"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									class="lucide lucide-arrow-up"
+									><path d="m5 12 7-7 7 7" /><path d="M12 19V5" /></svg
+								>
+							{/if}
 						</button>
 					</div>
 				</div>

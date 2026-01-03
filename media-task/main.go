@@ -47,30 +47,36 @@ func main() {
 	defer client.Close()
 
 	// 2.1 路由：添加图片任务
-	app.Get("/queue/addImage", func(c *fiber.Ctx) error {
-		imgPayload, _ := json.Marshal(ImageGeneratePayload{
-			ImagePath: "./sync_test.jpg",
-			Width:     1920,
-			Height:    1080,
-			ImgName:   "4K_Jewelry_Render",
-		})
-		taskImg := asynq.NewTask(TaskTypeImageGenerate, imgPayload, asynq.Timeout(60*time.Second))
-		if _, err := client.Enqueue(taskImg, asynq.Queue("media")); err != nil {
-			return c.Status(500).SendString(fmt.Sprintf("Enqueue error (Image): %v", err))
+	app.Post("/queue/addImage", func(c *fiber.Ctx) error {
+		var payload ImageGeneratePayload
+		if err := c.BodyParser(&payload); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid payload"})
 		}
-		return c.SendString("Image task enqueued successfully")
+
+		imgPayload, _ := json.Marshal(payload)
+		taskImg := asynq.NewTask(TaskTypeImageGenerate, imgPayload, asynq.Timeout(60*time.Second))
+		info, err := client.Enqueue(taskImg, asynq.Queue("media"))
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": fmt.Sprintf("Enqueue error (Image): %v", err)})
+		}
+		return c.JSON(fiber.Map{"taskId": info.ID})
 	})
 
 	// 2.2 路由：添加视频任务
-	app.Get("/queue/addVideo", func(c *fiber.Ctx) error {
+	app.Post("/queue/addVideo", func(c *fiber.Ctx) error {
+		var payload VideoGeneratePayload
+		if err := c.BodyParser(&payload); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid payload"})
+		}
+
 		videoID := fmt.Sprintf("vid_%d", time.Now().Unix())
-		genPayload, _ := json.Marshal(VideoGeneratePayload{
-			VideoID: videoID,
-			Prompt:  "Professional jewelry commercial, cinematic lighting",
-		})
+		payload.VideoID = videoID
+
+		genPayload, _ := json.Marshal(payload)
 		taskGen := asynq.NewTask(TaskTypeVideoGenerate, genPayload, asynq.Timeout(30*time.Second))
-		if _, err := client.Enqueue(taskGen, asynq.Queue("media")); err != nil {
-			return c.Status(500).SendString(fmt.Sprintf("Enqueue error (Video Gen): %v", err))
+		info, err := client.Enqueue(taskGen, asynq.Queue("media"))
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": fmt.Sprintf("Enqueue error (Video Gen): %v", err)})
 		}
 
 		// 2.3 入队状态检查任务 (延迟 5 秒)
@@ -79,10 +85,10 @@ func main() {
 		})
 		taskCheck := asynq.NewTask(TaskTypeVideoCheckStatus, checkPayload, asynq.Timeout(300*time.Second))
 		if _, err := client.Enqueue(taskCheck, asynq.Queue("media"), asynq.ProcessIn(5*time.Second)); err != nil {
-			return c.Status(500).SendString(fmt.Sprintf("Enqueue error (Video Check): %v", err))
+			return c.Status(500).JSON(fiber.Map{"error": fmt.Sprintf("Enqueue error (Video Check): %v", err)})
 		}
 
-		return c.SendString(fmt.Sprintf("Video task %s enqueued successfully", videoID))
+		return c.JSON(fiber.Map{"taskId": info.ID, "videoId": videoID})
 	})
 
 	// 2.3 路由：测试上传文件到 R2

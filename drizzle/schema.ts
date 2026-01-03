@@ -58,3 +58,21 @@ export const assets = sqliteTable("assets", {
   createdAt: integer("created_at", { mode: "timestamp" }),
   updatedAt: integer("updated_at", { mode: "timestamp" }),
 });
+
+export const tasks = sqliteTable("tasks", {
+  id: text("id").primaryKey(), // Using taskId from Go or nanoid
+  userId: text("user_id"),
+  prompt: text("prompt"),
+  type: text("type"), // 'image', 'video'
+  styleId: text("style_id"),
+  referenceImage: text("reference_image"), // R2 key
+  status: text("status").default('queued'), // 'queued', 'generating', 'completed', 'failed'
+
+  resultUrl: text("result_url"),
+  thumbnailUrl: text("thumbnail_url"),
+  duration: text("duration"),
+
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+  metadata: text("metadata", { mode: "json" }),
+});

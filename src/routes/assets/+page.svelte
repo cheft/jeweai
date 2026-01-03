@@ -302,7 +302,7 @@
 </script>
 
 <div
-	class="flex min-h-screen flex-col px-6 pt-24 pb-20"
+	class="flex min-h-screen flex-col p-6"
 	role="presentation"
 	onclick={() => {
 		// Clear selection if clicking background (AssetGrid handles its own background clicks too but this catches margins)
@@ -314,7 +314,7 @@
 		<!-- Header & Breadcrumbs -->
 		<div class="mb-6 flex items-center justify-between">
 			<div>
-				<h1 class="mb-2 text-3xl font-bold text-white">Assets</h1>
+				<!-- <h1 class="mb-2 text-3xl font-bold text-white">Assets</h1> -->
 				<div class="flex items-center gap-2 text-sm text-gray-400">
 					<!-- Home Breadcrumb -->
 					<button

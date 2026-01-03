@@ -12,5 +12,11 @@
       "database_id": "933ddb54-ad4f-4a0b-a5da-789d45d971b7",
       "migrations_dir": "drizzle/migrations"
     }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "covers",
+      "bucket_name": "covers"
+    }
   ]
 }

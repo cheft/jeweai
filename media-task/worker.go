@@ -30,12 +30,16 @@ type ImageGeneratePayload struct {
 	Width     int
 	Height    int
 	ImgName   string
+	Prompt    string
+	StyleID   string
 }
 
 // VideoGeneratePayload 视频生成任务参数
 type VideoGeneratePayload struct {
-	VideoID string
-	Prompt  string
+	VideoID   string
+	Prompt    string
+	ImagePath string
+	StyleID   string
 }
 
 // VideoCheckStatusPayload 视频状态检查任务参数
