@@ -152,7 +152,7 @@
 	<meta name="description" content="Explore cinematic jewelry ads generated with JeweAI." />
 </svelte:head>
 
-<div class="min-h-screen pt-24 pb-20">
+<div class="min-h-screen pt-16 pb-20">
 	<div class="container mx-auto max-w-5xl px-4">
 		<!-- AI Prompt Section -->
 		<div class="mb-16">
@@ -163,8 +163,70 @@
 			<div
 				class="relative overflow-hidden rounded-[2.5rem] border border-white/10 bg-[#1a1a1a]/80 p-6 shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur-3xl"
 			>
+				<!-- Mode Switcher (Top Left) -->
+				<div
+					class="absolute top-6 left-6 z-10 flex items-center rounded-2xl border border-white/10 bg-black/20 p-1.5 shadow-lg backdrop-blur-xl"
+				>
+					<div class="relative flex items-center">
+						<!-- Sliding Background Indicator -->
+						<div
+							class="absolute top-0 h-full w-1/2 rounded-xl bg-seko-accent shadow-[0_0_15px_rgba(163,230,53,0.3)] transition-all duration-500 ease-out"
+							style="left: 0; transform: translateX({isImageOnly ? '100%' : '0%'});"
+						></div>
+
+						<button
+							class="relative z-10 flex items-center justify-center space-x-3 rounded-xl px-5 py-2.5 text-base font-medium transition-colors duration-500 {!isImageOnly
+								? 'text-black'
+								: 'text-gray-400 hover:text-white'}"
+							on:click={() => (isImageOnly = false)}
+						>
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width="20"
+								height="20"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2.5"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								class="lucide lucide-video"
+								><path
+									d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.934a.5.5 0 0 0-.777-.416L16 11"
+								/><rect width="14" height="12" x="2" y="6" rx="2" /></svg
+							>
+							<span>视频</span>
+						</button>
+						<button
+							class="relative z-10 flex items-center justify-center space-x-3 rounded-xl px-5 py-2.5 text-base font-medium transition-colors duration-500 {isImageOnly
+								? 'text-black'
+								: 'text-gray-400 hover:text-white'}"
+							on:click={() => (isImageOnly = true)}
+						>
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width="20"
+								height="20"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2.5"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								class="lucide lucide-image"
+								><rect width="18" height="18" x="3" y="3" rx="2" ry="2" /><circle
+									cx="9"
+									cy="9"
+									r="2"
+								/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" /></svg
+							>
+							<span>图片</span>
+						</button>
+					</div>
+				</div>
+
 				<!-- Tag Area -->
-				<div class="mb-2 flex min-h-[48px] flex-wrap gap-3">
+				<div class="mb-4 flex min-h-[48px] flex-wrap gap-4 pl-64">
 					{#if uploadedImage}
 						<div
 							in:fly={{ x: -20, duration: 400, easing: cubicOut }}
@@ -239,8 +301,10 @@
 
 				<textarea
 					bind:value={prompt}
-					placeholder="输入你的灵感，AI会自动为你策划内容生成视频"
-					class="min-h-[120px] w-full resize-none bg-transparent px-4 pt-2 text-xl leading-relaxed text-white placeholder-gray-500 outline-none"
+					placeholder={isImageOnly
+						? '输入你的灵感，AI会自动为你生成高质量图片'
+						: '输入你的灵感，AI会自动为你策划内容生成视频'}
+					class="min-h-[120px] w-full resize-none bg-transparent p-2 text-xl leading-relaxed text-white placeholder-gray-500 outline-none"
 				></textarea>
 
 				<div class="flex items-center justify-between px-4">
@@ -349,22 +413,6 @@
 					</div>
 
 					<div class="flex items-center space-x-6">
-						<div class="flex items-center space-x-3">
-							<span class="text-sm font-medium text-gray-400">仅生成图片</span>
-							<button
-								class="relative h-6 w-11 rounded-full transition-all duration-500 {isImageOnly
-									? 'bg-seko-accent'
-									: 'bg-gray-700 hover:bg-gray-600'}"
-								on:click={() => (isImageOnly = !isImageOnly)}
-							>
-								<div
-									class="absolute top-1 left-1 h-4 w-4 rounded-full bg-white shadow-md transition-transform duration-500 {isImageOnly
-										? 'translate-x-5'
-										: ''}"
-								></div>
-							</button>
-						</div>
-						<div class="h-8 w-px bg-white/10"></div>
 						<button
 							class="flex h-12 w-12 items-center justify-center rounded-full bg-gray-800 text-gray-400 shadow-lg transition-all duration-300 hover:scale-110 hover:bg-seko-accent hover:text-black hover:shadow-seko-accent/30 active:scale-95"
 							on:click={() => {
