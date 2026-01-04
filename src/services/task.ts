@@ -1,6 +1,6 @@
 import { os, ORPCError } from '@orpc/server';
 import { z } from 'zod';
-import { tasks } from '@/drizzle/schema';
+import { tasks, assets } from '@/drizzle/schema';
 import { nanoid } from 'nanoid';
 import {
   CLOUDFLARE_ACCOUNT_ID,
@@ -62,15 +62,31 @@ export const create = os
 
     try {
       let imageKey = '';
+      let assetId = '';
       if (input.image) {
-        // 1. Process and Upload image to R2
+        // 1. Process and Upload image to R2 covers bucket with /locks/ prefix
         const base64Data = input.image.replace(/^data:image\/\w+;base64,/, "");
         const imageBuffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
         const id = nanoid();
         const safeFilename = (input.filename || 'input.png').replace(/[^a-zA-Z0-9.]/g, '_');
-        imageKey = `/temp/${userId}/${id}_${safeFilename}`;
+        imageKey = `locks/${userId}/${id}_${safeFilename}`;
 
         await uploadToR2(imageKey, imageBuffer, 'image/png');
+
+        // Create Asset record (locked)
+        const [newAsset] = await db.insert(assets).values({
+          id: nanoid(),
+          userId,
+          name: safeFilename,
+          type: 'image', // Reference is always image
+          source: 'ai',
+          path: imageKey, // Current path in covers/locks
+          status: 'locked',
+          prompt: '', // Prompt belongs to the generated result, not the reference
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }).returning();
+        assetId = newAsset.id;
       }
 
       // 2. Call Golang Service
@@ -80,6 +96,7 @@ export const create = os
       const goPayload: any = {
         Prompt: input.prompt,
         StyleID: input.styleId,
+        AssetID: assetId,
       };
 
       if (input.isImageOnly) {
@@ -89,7 +106,7 @@ export const create = os
         goPayload.Height = 1024;
       } else {
         goPayload.ImagePath = imageKey;
-        goPayload.VideoID = nanoid(); // Go will override if needed, but good to Have
+        goPayload.VideoID = nanoid();
       }
 
       const goResponse = await fetch(`http://localhost:3000${endpoint}`, {
@@ -109,6 +126,7 @@ export const create = os
       await db.insert(tasks).values({
         id: taskId,
         userId,
+        assetId,
         prompt: input.prompt,
         type: input.isImageOnly ? 'image' : 'video',
         styleId: input.styleId,

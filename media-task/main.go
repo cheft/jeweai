@@ -11,9 +11,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	cloudflare "github.com/cloudflare/cloudflare-go/v6"
-	"github.com/cloudflare/cloudflare-go/v6/option"
-	"github.com/cloudflare/cloudflare-go/v6/r2"
 	"github.com/gofiber/fiber/v2"
 	"github.com/hibiken/asynq"
 )
@@ -88,8 +85,10 @@ func main() {
 
 		// 2.3 入队状态检查任务 (延迟 5 秒)
 		checkPayload, _ := json.Marshal(VideoCheckStatusPayload{
-			TaskID:  taskID,
-			VideoID: videoID,
+			TaskID:    taskID,
+			AssetID:   payload.AssetID,
+			VideoID:   videoID,
+			ImagePath: payload.ImagePath,
 		})
 		taskCheck := asynq.NewTask(TaskTypeVideoCheckStatus, checkPayload, asynq.Timeout(300*time.Second))
 		if _, err := client.Enqueue(taskCheck, asynq.Queue("media"), asynq.ProcessIn(5*time.Second)); err != nil {
@@ -108,7 +107,7 @@ func main() {
 		}
 
 		ctx := context.TODO()
-		bucketName := os.Getenv("R2_BUCKET")
+		bucketName := os.Getenv("R2_PUBLIC_BUCKET")
 		if bucketName == "" {
 			bucketName = "covers" // Default or placeholder
 		}
@@ -128,32 +127,17 @@ func main() {
 	}
 }
 
-// uploadToR2 使用 cloudflare-go v6.5.0 和 AWS SDK V2 上传文件到 Cloudflare R2
-// cloudflare-go 用于管理和验证，AWS SDK 用于实际文件上传（S3 兼容 API）
-func uploadToR2(ctx context.Context, filePath, bucketName, objectKey string) error {
-
+// getS3Client 初始化并返回 AWS S3 客户端（R2 兼容）
+func getS3Client(ctx context.Context) (*s3.Client, error) {
 	accountID := os.Getenv("CLOUDFLARE_ACCOUNT_ID")
 	accessKeyID := os.Getenv("R2_ACCESS_KEY_ID")
 	secretAccessKey := os.Getenv("R2_SECRET_ACCESS_KEY")
-	r2Token := os.Getenv("CLOUDFLARE_R2_TOKEN")
 
+	fmt.Printf("=== [SYSTEM] R2 credentials: %s %s %s ===\n", accountID, accessKeyID, secretAccessKey)
 	if accountID == "" || accessKeyID == "" || secretAccessKey == "" {
-		return fmt.Errorf("missing R2 credentials (CLOUDFLARE_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY)")
+		return nil, fmt.Errorf("missing R2 credentials")
 	}
 
-	// 可选：使用 cloudflare-go SDK 验证 bucket 是否存在
-	if r2Token != "" {
-		cfClient := cloudflare.NewClient(option.WithAPIToken(r2Token))
-		_, err := cfClient.R2.Buckets.Get(ctx, bucketName, r2.BucketGetParams{
-			AccountID: cloudflare.F(accountID),
-		})
-		if err != nil {
-			fmt.Printf("Warning: Could not verify bucket with cloudflare-go: %v\n", err)
-			// 继续执行，因为 bucket 可能存在但 token 权限不足
-		}
-	}
-
-	// 使用 AWS SDK V2 上传文件（S3 兼容 API）- 最新写法
 	r2Endpoint := fmt.Sprintf("https://%s.r2.cloudflarestorage.com", accountID)
 
 	cfg, err := config.LoadDefaultConfig(ctx,
@@ -161,12 +145,55 @@ func uploadToR2(ctx context.Context, filePath, bucketName, objectKey string) err
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, "")),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to load SDK config: %v", err)
+		return nil, err
 	}
 
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(r2Endpoint)
 	})
+
+	return client, nil
+}
+
+// moveR2Object 将对象从一个桶移动到另一个桶
+func moveR2Object(ctx context.Context, srcBucket, srcKey, destBucket, destKey string) error {
+	client, err := getS3Client(ctx)
+	if err != nil {
+		return err
+	}
+
+	copySource := fmt.Sprintf("%s/%s", srcBucket, srcKey)
+	fmt.Printf("Moving %s to %s/%s...\n", copySource, destBucket, destKey)
+
+	// 1. Copy Object
+	_, err = client.CopyObject(ctx, &s3.CopyObjectInput{
+		Bucket:     aws.String(destBucket),
+		Key:        aws.String(destKey),
+		CopySource: aws.String(copySource),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to copy object: %v", err)
+	}
+
+	// 2. Delete Original Object
+	_, err = client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(srcBucket),
+		Key:    aws.String(srcKey),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete original object: %v", err)
+	}
+
+	fmt.Printf("Successfully moved %s to %s/%s\n", srcKey, destBucket, destKey)
+	return nil
+}
+
+// uploadToR2 使用 AWS SDK V2 上传文件到 Cloudflare R2
+func uploadToR2(ctx context.Context, filePath, bucketName, objectKey string) error {
+	client, err := getS3Client(ctx)
+	if err != nil {
+		return err
+	}
 
 	file, err := os.Open(filePath)
 	if err != nil {

@@ -5,9 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"image"
-	"image/color"
-	"image/jpeg"
 	"net/http"
 	"os"
 	"time"
@@ -48,28 +45,32 @@ const (
 // --------------- 任务有效载荷 ---------------
 // ImageGeneratePayload 图片生成任务参数
 type ImageGeneratePayload struct {
-	TaskID    string
-	ImagePath string
-	Width     int
-	Height    int
-	ImgName   string
-	Prompt    string
-	StyleID   string
+	TaskID    string `json:"TaskID"`
+	AssetID   string `json:"AssetID"`
+	ImagePath string `json:"ImagePath"`
+	Width     int    `json:"Width"`
+	Height    int    `json:"Height"`
+	ImgName   string `json:"ImgName"`
+	Prompt    string `json:"Prompt"`
+	StyleID   string `json:"StyleID"`
 }
 
 // VideoGeneratePayload 视频生成任务参数
 type VideoGeneratePayload struct {
-	TaskID    string
-	VideoID   string
-	Prompt    string
-	ImagePath string
-	StyleID   string
+	TaskID    string `json:"TaskID"`
+	AssetID   string `json:"AssetID"`
+	VideoID   string `json:"VideoID"`
+	Prompt    string `json:"Prompt"`
+	ImagePath string `json:"ImagePath"`
+	StyleID   string `json:"StyleID"`
 }
 
 // VideoCheckStatusPayload 视频状态检查任务参数
 type VideoCheckStatusPayload struct {
-	TaskID  string
-	VideoID string
+	TaskID    string `json:"TaskID"`
+	AssetID   string `json:"AssetID"`
+	VideoID   string `json:"VideoID"`
+	ImagePath string `json:"ImagePath"`
 }
 
 // --------------- 消费者：处理任务 ---------------
@@ -99,36 +100,49 @@ func HandleImageGenerateTask(ctx context.Context, t *asynq.Task) error {
 		return fmt.Errorf("marshal error: %v", err)
 	}
 
-	fmt.Printf("\n=== [ASYNCHRONOUS] Starting Image Generation ===\n")
-	updateTaskStatus(p.TaskID, "execute", "", "")
+	fmt.Printf("\n=== [IMAGE] Processing: %s (Asset: %s) ===\n", p.TaskID, p.AssetID)
+	fmt.Printf("[IMAGE] ImagePath: %s\n", p.ImagePath)
 
-	fmt.Printf("Path: %s, Name: %s\n", p.ImagePath, p.ImgName)
+	coversBucket := os.Getenv("R2_PUBLIC_BUCKET") // Assume this is the covers bucket
+	jeweaiBucket := os.Getenv("R2_BUCKET")
+	if jeweaiBucket == "" {
+		jeweaiBucket = "jeweai" // Fallback
+	}
 
-	img := image.NewRGBA(image.Rect(0, 0, p.Width, p.Height))
+	// 1. Simulate Thumbnail Generation in covers bucket
+	// Original is at: locks/userId/id_file.png
+	// Thumbnail should be at: userId/id_file.png (in covers bucket)
+	thumbnailPath := ""
+	if p.ImagePath != "" {
+		// Replace "locks/" with "" to get thumbnail path
+		thumbnailPath = fmt.Sprintf("%s", p.ImagePath[6:]) // Skip "locks/"
+		fmt.Printf("Simulating Thumbnail: %s\n", thumbnailPath)
 
-	// 浅蓝色背景
-	blue := color.RGBA{R: 135, G: 206, B: 235, A: 255}
-	for y := 0; y < p.Height; y++ {
-		for x := 0; x < p.Width; x++ {
-			img.Set(x, y, blue)
+		// In a real scenario, we'd generate and upload. Here we just notify.
+		updateTaskStatus(p.TaskID, "execute", "", thumbnailPath)
+	} else {
+		updateTaskStatus(p.TaskID, "execute", "", "")
+	}
+
+	// 模拟处理耗时 (5秒)
+	time.Sleep(5 * time.Second)
+
+	// 2. On Completion: Move original from covers/locks/ to jeweai/
+	if p.ImagePath != "" && jeweaiBucket != "" {
+		destKey := p.ImagePath[6:] // Skip "locks/"
+		err := moveR2Object(ctx, coversBucket, p.ImagePath, jeweaiBucket, destKey)
+		if err != nil {
+			fmt.Printf("Move error: %v\n", err)
+			// We might not want to fail the whole task if move fails, but user wants it moved.
 		}
+
+		finalUrl := destKey // Using the key as the "url" for now, Node.js will handle mapping if needed
+		updateTaskStatus(p.TaskID, "complete", finalUrl, thumbnailPath)
+	} else {
+		updateTaskStatus(p.TaskID, "complete", "result_mock_url", "")
 	}
 
-	file, err := os.Create(p.ImagePath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	if err := jpeg.Encode(file, img, &jpeg.Options{Quality: 90}); err != nil {
-		return err
-	}
-
-	// 模拟处理耗时 (10秒)
-	time.Sleep(10 * time.Second)
-
-	updateTaskStatus(p.TaskID, "complete", p.ImagePath, p.ImagePath)
-	fmt.Printf("=== [ASYNCHRONOUS] Image Generation COMPLETED ===\n\n")
+	fmt.Printf("=== [IMAGE] COMPLETED: %s ===\n\n", p.TaskID)
 	return nil
 }
 
@@ -139,15 +153,22 @@ func HandleVideoGenerateTask(ctx context.Context, t *asynq.Task) error {
 		return fmt.Errorf("marshal error: %v", err)
 	}
 
-	fmt.Printf("=== [ASYNCHRONOUS] Starting Video Generation ===\n")
-	fmt.Printf("Video ID: %s\n", p.VideoID)
+	fmt.Printf("=== [VIDEO] Starting: %s (Asset: %s) ===\n", p.TaskID, p.AssetID)
+	fmt.Printf("[VIDEO] ImagePath: %s\n", p.ImagePath)
 
-	updateTaskStatus(p.TaskID, "execute", "", "")
+	// Simulate Thumbnail/Cover generation in covers bucket
+	thumbnailPath := ""
+	if p.ImagePath != "" {
+		thumbnailPath = p.ImagePath[6:] // Skip "locks/"
+		updateTaskStatus(p.TaskID, "execute", "", thumbnailPath)
+	} else {
+		updateTaskStatus(p.TaskID, "execute", "", "")
+	}
 
 	// 模拟请求外部 API 的耗时
 	time.Sleep(2 * time.Second)
 
-	fmt.Printf("=== [ASYNCHRONOUS] Request sent to AI Provider. UUID: %s ===\n\n", p.VideoID)
+	fmt.Printf("=== [VIDEO] Request sent to AI Provider. UUID: %s ===\n\n", p.VideoID)
 	return nil
 }
 
@@ -158,15 +179,37 @@ func HandleVideoCheckStatusTask(ctx context.Context, t *asynq.Task) error {
 		return fmt.Errorf("marshal error: %v", err)
 	}
 
-	fmt.Printf("=== [ASYNCHRONOUS] Checking Video Status ===\n")
-	fmt.Printf("Video ID: %s\n", p.VideoID)
+	fmt.Printf("=== [VIDEO] Checking Status: %s (Asset: %s) ===\n", p.TaskID, p.AssetID)
+	fmt.Printf("[VIDEO] ImagePath: %s\n", p.ImagePath)
 
 	// 模拟检查逻辑
-	time.Sleep(20 * time.Second)
+	time.Sleep(10 * time.Second)
 
-	resultUrl := fmt.Sprintf("https://r2.example.com/videos/%s.mp4", p.VideoID)
-	updateTaskStatus(p.TaskID, "complete", resultUrl, resultUrl)
+	// 1. Completion logic
+	jeweaiBucket := os.Getenv("R2_BUCKET")
+	if jeweaiBucket == "" {
+		jeweaiBucket = "jeweai"
+	}
+	coversBucket := os.Getenv("R2_PUBLIC_BUCKET")
 
-	fmt.Printf("=== [ASYNCHRONOUS] Status: COMPLETED. URL: %s ===\n\n", resultUrl)
+	// Update 2024-01-04: Video assets also have Path (thumbnail)
+	videoResultUrl := fmt.Sprintf("videos/%s.mp4", p.VideoID)
+	videoThumbUrl := fmt.Sprintf("videos/%s_thumb.png", p.VideoID)
+
+	if p.ImagePath != "" {
+		movedPath := p.ImagePath[6:] // Skip "locks/"
+		fmt.Printf("[VIDEO] Moving reference image: %s -> %s\n", p.ImagePath, movedPath)
+
+		// Move reference image to permanent storage (jeweai)
+		err := moveR2Object(ctx, coversBucket, p.ImagePath, jeweaiBucket, movedPath)
+		if err != nil {
+			fmt.Printf("[VIDEO] Move reference image error: %v\n", err)
+		}
+	}
+
+	// Notify complete: resultUrl is the video, thumbnailUrl is the video's thumbnail
+	updateTaskStatus(p.TaskID, "complete", videoResultUrl, videoThumbUrl)
+
+	fmt.Printf("=== [VIDEO] Status: COMPLETED. URL: %s ===\n\n", videoResultUrl)
 	return nil
 }

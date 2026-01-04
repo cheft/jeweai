@@ -132,27 +132,21 @@
 									class="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
 								/>
 								<div
-									class="absolute inset-0 bg-linear-to-t from-black/90 via-black/20 to-transparent opacity-80 transition-opacity group-hover:opacity-100"
+									class="absolute inset-0 bg-linear-to-t from-black/90 via-black/20 to-transparent opacity-90"
 								></div>
 
 								<!-- Play Button Overlay -->
-								<div
-									class="absolute inset-0 flex items-center justify-center opacity-0 transition-all duration-300 group-hover:opacity-100"
-								>
+								<div class="absolute inset-0 flex items-center justify-center">
 									<div
-										class="flex h-16 w-16 transform items-center justify-center rounded-full border border-white/20 bg-white/10 text-white shadow-lg backdrop-blur-md transition-all duration-300 group-hover:scale-100 hover:scale-110"
+										class="flex h-16 w-16 transform items-center justify-center rounded-full border border-white/20 bg-white/10 text-white shadow-lg backdrop-blur-md transition-all duration-300 hover:scale-110"
 									>
 										<Play class="ml-1 h-6 w-6 fill-white" />
 									</div>
 								</div>
 
 								<!-- Content Overlay -->
-								<div
-									class="absolute right-0 bottom-0 left-0 translate-y-2 p-5 transition-transform duration-300 group-hover:translate-y-0"
-								>
-									<div
-										class="mb-2 flex items-center justify-between font-mono text-xs opacity-0 transition-opacity delay-100 group-hover:opacity-100"
-									>
+								<div class="absolute right-0 bottom-0 left-0 p-5">
+									<div class="mb-2 flex items-center justify-between font-mono text-xs opacity-60">
 										<div class="flex items-center gap-2 text-seko-accent">
 											<span class="rounded bg-seko-accent/10 px-1.5 py-0.5">HD</span>
 											<span>•</span>
@@ -165,9 +159,7 @@
 									>
 										{video.prompt}
 									</p>
-									<div
-										class="mt-3 flex items-center gap-2 opacity-0 transition-opacity delay-200 group-hover:opacity-100"
-									>
+									<div class="mt-3 flex items-center gap-2">
 										<img
 											src={video.referenceImage}
 											alt="Ref"

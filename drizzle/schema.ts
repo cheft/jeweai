@@ -53,15 +53,16 @@ export const assets = sqliteTable("assets", {
 
   prompt: text("prompt"),
   metadata: text("metadata", { mode: "json" }),
-  status: integer("status").default(1),
+  status: text("status").default('unlocked'), // 'locked', 'unlocked'
 
-  createdAt: integer("created_at", { mode: "timestamp" }),
-  updatedAt: integer("updated_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
 export const tasks = sqliteTable("tasks", {
   id: text("id").primaryKey(), // Using taskId from Go or nanoid
   userId: text("user_id"),
+  assetId: text("asset_id"),
   prompt: text("prompt"),
   type: text("type"), // 'image', 'video'
   styleId: text("style_id"),
