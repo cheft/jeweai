@@ -26,6 +26,7 @@
 	onDestroy(() => {
 		if (interval) clearInterval(interval);
 	});
+	const R2_DOMAIN = 'https://pub-0f1ebbb2b0ed48f9a0dbe8a44a832060.r2.dev';
 
 	// Helper to format time (HH:mm:ss)
 	function formatTime(date: Date) {
@@ -127,7 +128,7 @@
 
 							{#if video.status === 'completed' && video.thumbnail}
 								<img
-									src={video.thumbnail}
+									src="{R2_DOMAIN}/{video.thumbnail}"
 									alt={video.prompt}
 									class="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
 								/>
@@ -161,7 +162,7 @@
 									</p>
 									<div class="mt-3 flex items-center gap-2">
 										<img
-											src={video.referenceImage}
+											src="{R2_DOMAIN}/{video.referenceImage}"
 											alt="Ref"
 											class="h-8 w-8 rounded-lg border border-white/30 object-cover shadow-sm"
 										/>
