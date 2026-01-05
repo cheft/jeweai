@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/gofiber/fiber/v2"
 	"github.com/hibiken/asynq"
+	"github.com/joho/godotenv"
 )
 
 // --------------- 异步任务生产者 ---------------
@@ -25,6 +26,11 @@ func NewClient() *asynq.Client {
 }
 
 func main() {
+	// 0. 加载 .env 变量
+	if err := godotenv.Load(); err != nil {
+		fmt.Printf("Warning: .env file not found or error loading it: %v\n", err)
+	}
+
 	// 1. 初始化 Redis 消费者
 	srv := NewServer()
 	mux := asynq.NewServeMux()
