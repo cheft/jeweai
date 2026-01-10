@@ -63,26 +63,28 @@ export const create = os
     try {
       let imageKey = '';
       let assetId = '';
+
       if (input.image) {
-        // 1. Process and Upload image to R2 covers bucket with /locks/ prefix
+        // 1. Process and Upload image to R2 (folder: original)
         const base64Data = input.image.replace(/^data:image\/\w+;base64,/, "");
         const imageBuffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
         const id = nanoid();
         const safeFilename = (input.filename || 'input.png').replace(/[^a-zA-Z0-9.]/g, '_');
-        imageKey = `locks/${userId}/${id}_${safeFilename}`;
+
+        // Change: Store in 'original/' instead of 'locks/'
+        imageKey = `original/${userId}/${id}_${safeFilename}`;
 
         await uploadToR2(imageKey, imageBuffer, 'image/png');
 
-        // Create Asset record (locked)
+        // Create Asset record (unlocked immediately)
         const [newAsset] = await db.insert(assets).values({
           id: nanoid(),
           userId,
           name: safeFilename,
-          type: 'image', // Reference is always image
-          source: 'ai',
-          path: imageKey, // Current path in covers/locks
-          status: 'locked',
-          prompt: '', // Prompt belongs to the generated result, not the reference
+          type: 'image',
+          source: 'upload', // Changed from 'ai' to 'upload' for the reference
+          path: imageKey,
+          status: 'unlocked', // Unlocked immediately
           createdAt: new Date(),
           updatedAt: new Date(),
         }).returning();
@@ -92,20 +94,15 @@ export const create = os
       // 2. Call Golang Service
       const endpoint = input.isImageOnly ? '/queue/addImage' : '/queue/addVideo';
 
-      // Determine what to send based on Go's expectations
+      // Payload for Go
       const goPayload: any = {
         Prompt: input.prompt,
         StyleID: input.styleId,
         AssetID: assetId,
+        ImagePath: imageKey, // Go will use this to download and generate cover
       };
 
-      if (input.isImageOnly) {
-        goPayload.ImagePath = imageKey;
-        goPayload.ImgName = 'jewelry_image';
-        goPayload.Width = 1024;
-        goPayload.Height = 1024;
-      } else {
-        goPayload.ImagePath = imageKey;
+      if (!input.isImageOnly) {
         goPayload.VideoID = nanoid();
       }
 
@@ -126,11 +123,12 @@ export const create = os
       await db.insert(tasks).values({
         id: taskId,
         userId,
-        assetId,
+        // assetId: assetId, // Deprecated? Schema seems to use referenceAssetId now
+        // But let's keep assetId if migration didn't remove it or just use referenceAssetId
+        referenceAssetId: assetId,
         prompt: input.prompt,
         type: input.isImageOnly ? 'image' : 'video',
         styleId: input.styleId,
-        referenceImage: imageKey,
         status: 'queued',
         createdAt: new Date(),
         updatedAt: new Date(),

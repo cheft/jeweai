@@ -7,10 +7,10 @@ import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ request }) => {
   try {
-    const payload = await request.json();
+    const payload: any = await request.json();
     console.log('[Webhook] Task Update received:', payload);
 
-    const { taskId, status, resultUrl, thumbnailUrl, duration } = payload;
+    const { taskId, status, resultUrl, thumbnailUrl, duration, coverPath, videoPath, videoCoverPath } = payload;
 
     if (!taskId || !status) {
       return json({ error: 'Missing taskId or status' }, { status: 400 });
@@ -27,70 +27,79 @@ export const POST: RequestHandler = async ({ request }) => {
       return json({ success: true, message: 'Task already finished' });
     }
 
-    // 1. Update/Create Assets
-    if (status === 'execute') {
-      // Stage 1: Update Reference Image Thumbnail
-      if (task.assetId && thumbnailUrl) {
+    // 1. Update/Create Assets based on Status
+    if (status === 'generating') {
+      // Stage 1: Update Reference Image Cover (720p)
+      // Go sends 'coverPath' which is the R2 key for the generated cover
+      if (task.referenceAssetId && coverPath) {
         await db.update(assets)
           .set({
-            path: thumbnailUrl,
+            coverPath: coverPath,
             updatedAt: new Date()
           })
-          .where(eq(assets.id, task.assetId));
-        console.log(`[Webhook] Reference Asset ${task.assetId} thumbnail updated`);
+          .where(eq(assets.id, task.referenceAssetId));
+        console.log(`[Webhook] Reference Asset ${task.referenceAssetId} cover updated: ${coverPath}`);
       }
-    } else if (status === 'complete') {
+    } else if (status === 'completed') {
       // Stage 2: Completion Logic
       if (task.type === 'video') {
         // Create a NEW asset for the generated video
+        // Go sends 'videoPath' (resultUrl) and 'videoCoverPath' (thumbnailUrl)
+        const finalVideoPath = videoPath || resultUrl;
+        const finalCoverPath = videoCoverPath || thumbnailUrl;
+
         const [newVideoAsset] = await db.insert(assets).values({
           id: nanoid(),
           userId: task.userId || '',
           name: `video_${task.id}.mp4`,
           type: 'video',
           source: 'ai',
-          url: resultUrl, // Permanent path in jeweai bucket
-          path: thumbnailUrl, // Video thumbnail path
-          fromAssetId: task.assetId, // Link to reference image
-          prompt: task.prompt, // Prompt bound to the video
+          path: finalVideoPath, // Perm path in jeweai bucket
+          coverPath: finalCoverPath, // Video thumbnail path
+          fromAssetId: task.referenceAssetId, // Link to reference image
+          prompt: task.prompt,
           status: 'unlocked',
           createdAt: new Date(),
           updatedAt: new Date(),
         }).returning();
+
         console.log(`[Webhook] Created new video asset: ${newVideoAsset.id}`);
 
-        // Unlock reference image asset and update its URL (now moved to jeweai)
-        if (task.assetId) {
-          const movedPath = task.referenceImage?.startsWith('locks/')
-            ? task.referenceImage.substring(6)
-            : task.referenceImage;
+        // Update Task with resultAssetId
+        await db.update(tasks)
+          .set({
+            resultAssetId: newVideoAsset.id,
+            status: 'completed',
+            updatedAt: new Date()
+          })
+          .where(eq(tasks.id, taskId));
 
-          await db.update(assets)
-            .set({
-              status: 'unlocked',
-              url: movedPath, // The path where the original was moved to
-              updatedAt: new Date()
-            })
-            .where(eq(assets.id, task.assetId));
-          console.log(`[Webhook] Reference Asset ${task.assetId} unlocked at ${movedPath}`);
-        }
       } else if (task.type === 'image') {
-        // For image generation, update the existing asset directly
-        if (task.assetId) {
+        // For image generation, update the existing asset directly (if applicable) or create new
+        // Adapting legacy logic:
+        if (task.referenceAssetId) {
+          // If image generation was updating the reference asset? 
+          // Logic suggests creating new asset for result usually.
+          // But existing code updated the "Asset".
+          // We will assume creation of new asset for consistency if needed, but sticking to legacy update for now.
+          // The prompt is "video generation flow", so image part is less critical.
           await db.update(assets)
             .set({
-              url: resultUrl,
+              path: resultUrl,
               status: 'unlocked',
-              prompt: task.prompt, // Bound to the result
+              prompt: task.prompt,
               updatedAt: new Date(),
             })
-            .where(eq(assets.id, task.assetId));
-          console.log(`[Webhook] Image Asset ${task.assetId} unlocked and updated`);
+            .where(eq(assets.id, task.referenceAssetId));
         }
       }
     }
 
     // 2. Map Go status to DB status
+    // 'generating' maps to 'generating'
+    // 'completed' maps to 'completed'
+    // 'execute' (old) maps to 'generating'
+
     let dbStatus = status;
     if (status === 'execute') dbStatus = 'generating';
     if (status === 'complete') dbStatus = 'completed';
@@ -100,9 +109,8 @@ export const POST: RequestHandler = async ({ request }) => {
       updatedAt: new Date(),
     };
 
-    if (resultUrl) updateData.resultUrl = resultUrl;
-    if (thumbnailUrl) updateData.thumbnailUrl = thumbnailUrl;
-    if (duration) updateData.duration = duration;
+    // Update metadata/urls in task just in case (though resultAssetId is preferred)
+    if (resultUrl) updateData.metadata = { ...(task.metadata as object || {}), resultUrl };
 
     await db.update(tasks)
       .set(updateData)

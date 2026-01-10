@@ -41,7 +41,7 @@ export const assets = sqliteTable("assets", {
   source: text("source"), // 'ai', 'upload'
   fromAssetId: text("from_asset_id"),
 
-  url: text("url"),
+  coverPath: text("cover_path"), // cover
   path: text("path"),
 
   size: integer("size"),
@@ -66,12 +66,9 @@ export const tasks = sqliteTable("tasks", {
   prompt: text("prompt"),
   type: text("type"), // 'image', 'video'
   styleId: text("style_id"),
-  referenceImage: text("reference_image"), // R2 key
+  referenceAssetId: text("reference_asset_id"), // Asset ID
+  resultAssetId: text("result_asset_id"), // Asset ID
   status: text("status").default('queued'), // 'queued', 'generating', 'completed', 'failed'
-
-  resultUrl: text("result_url"),
-  thumbnailUrl: text("thumbnail_url"),
-  duration: text("duration"),
 
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
