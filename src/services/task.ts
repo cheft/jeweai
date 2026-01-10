@@ -152,7 +152,7 @@ export const create = os
     }
   });
 
-import { desc, eq, getTableColumns } from 'drizzle-orm';
+import { desc, eq, getTableColumns, and } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 
 export const list = os
@@ -188,4 +188,37 @@ export const list = os
         referenceImage: row.referenceCover,
       };
     });
+  });
+
+export const get = os
+  .input(z.object({ id: z.string() }))
+  .handler(async ({ input, context }: { input: { id: string }, context: any }) => {
+    const { db } = context;
+    const userId = 'user_123456'; // TODO: auth
+
+    const refAssets = alias(assets, 'ref');
+    const resAssets = alias(assets, 'res');
+
+    const [task] = await db.select({
+      ...getTableColumns(tasks),
+      referenceCover: refAssets.coverPath,
+      resultCover: resAssets.coverPath,
+    })
+      .from(tasks)
+      .leftJoin(refAssets, eq(tasks.referenceAssetId, refAssets.id))
+      .leftJoin(resAssets, eq(tasks.resultAssetId, resAssets.id))
+      .where(and(eq(tasks.id, input.id), eq(tasks.userId, userId)))
+      .limit(1);
+
+    if (!task) {
+      throw new ORPCError('NOT_FOUND', { message: 'Task not found' });
+    }
+
+    const thumbnail = task.resultCover || task.referenceCover || null;
+
+    return {
+      ...task,
+      thumbnail,
+      referenceImage: task.referenceCover,
+    };
   });
