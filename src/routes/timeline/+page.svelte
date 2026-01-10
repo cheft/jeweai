@@ -115,7 +115,7 @@
 				<div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 					{#each videosInGroup as video (video.id)}
 						<a
-							href="/timeline/{video.id}"
+							href="/timeline/{video.assetLink}"
 							class="group relative block aspect-9/16 overflow-hidden rounded-2xl border border-white/10 bg-white/5 transition-all duration-300 hover:border-seko-accent/50 hover:shadow-[0_0_30px_rgba(163,230,53,0.15)] focus:ring-2 focus:ring-seko-accent focus:ring-offset-2 focus:ring-offset-black focus:outline-none"
 							in:fade={{ duration: 400, delay: Number(video.id) * 50 }}
 						>

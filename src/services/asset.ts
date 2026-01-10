@@ -98,6 +98,8 @@ export const get = os
       coverUrl,
       videoUrl,
       originalImageUrl,
+      width: asset.width || null,
+      height: asset.height || null,
       prompt: taskRelation?.prompt || asset.prompt || null,
       taskId: taskRelation?.id || null,
       taskStatus: taskRelation?.status || null,

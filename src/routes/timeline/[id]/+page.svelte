@@ -61,39 +61,47 @@
 </script>
 
 <div
-	class="min-h-screen bg-seko-bg bg-[radial-gradient(ellipse_at_top,var(--tw-gradient-stops))] from-seko-accent/5 via-seko-bg to-seko-bg p-4 pt-12 md:p-8 md:pt-20"
+	class="min-h-screen bg-seko-bg bg-[radial-gradient(ellipse_at_top,var(--tw-gradient-stops))] from-seko-accent/5 via-seko-bg to-seko-bg p-4 pt-12 md:p-8"
 >
-	<div class="container mx-auto max-w-6xl">
-		<!-- Back Navigation -->
-		<a
-			href="/timeline"
-			class="mb-8 inline-flex items-center gap-2 rounded-full border border-white/5 bg-white/5 px-4 py-2 text-sm font-medium text-gray-400 transition-colors hover:bg-white/10 hover:text-white"
-		>
-			<ChevronLeft class="h-4 w-4" />
-			Back to Timeline
-		</a>
+	<!-- Floating Back Navigation -->
+	<a
+		href="/timeline"
+		class="fixed top-[80px] left-4 z-50 inline-flex items-center gap-2 rounded-full border border-white/10 bg-seko-bg/80 px-4 py-2 text-sm font-medium text-gray-400 backdrop-blur-md transition-colors hover:bg-white/10 hover:text-white md:top-8 md:left-8"
+	>
+		<ChevronLeft class="h-4 w-4" />
+		Back
+	</a>
 
+	<div class="container mx-auto max-w-6xl">
 		{#if isLoading}
 			<div class="flex items-center justify-center py-20">
-				<div class="h-12 w-12 animate-spin rounded-full border-2 border-white/20 border-t-seko-accent"></div>
+				<div
+					class="h-12 w-12 animate-spin rounded-full border-2 border-white/20 border-t-seko-accent"
+				></div>
 			</div>
 		{:else if error}
 			<div class="rounded-2xl border border-red-500/20 bg-red-500/10 p-8 text-center">
 				<p class="text-red-400">{error}</p>
 			</div>
 		{:else if asset}
+			{@const isPortrait = asset.height && asset.width && asset.height > asset.width}
+			{@const formatString =
+				asset.width && asset.height ? `${asset.width}x${asset.height}` : '1080p'}
 			<div class="grid grid-cols-1 gap-8 lg:grid-cols-3">
 				<!-- Main Content (Video Player) -->
 				<div class="space-y-6 lg:col-span-2">
 					<div
-						class="group relative aspect-video w-full overflow-hidden rounded-2xl border border-white/10 bg-black shadow-[0_0_50px_rgba(0,0,0,0.5)]"
+						class="group relative w-full overflow-hidden rounded-2xl border border-white/10 bg-black shadow-[0_0_50px_rgba(0,0,0,0.5)] {isPortrait
+							? 'max-h-[80vh]'
+							: 'aspect-video'}"
+						style={isPortrait ? `aspect-ratio: ${asset.width}/${asset.height}` : ''}
 					>
 						{#if asset.type === 'video' && asset.videoUrl}
 							<video
 								src={asset.videoUrl}
 								poster={asset.coverUrl}
 								controls
-								class="h-full w-full object-cover"
+								class="h-full w-full object-contain"
 								autoplay
 								muted
 								loop
@@ -102,7 +110,9 @@
 							</video>
 						{:else if asset.taskStatus === 'generating'}
 							<div class="absolute inset-0 flex flex-col items-center justify-center">
-								<div class="mb-4 h-12 w-12 animate-spin rounded-full border-2 border-white/20 border-t-seko-accent"></div>
+								<div
+									class="mb-4 h-12 w-12 animate-spin rounded-full border-2 border-white/20 border-t-seko-accent"
+								></div>
 								<p class="text-lg text-white">Generating video...</p>
 							</div>
 							{#if asset.coverUrl}
@@ -119,11 +129,7 @@
 							</div>
 						{:else if asset.coverUrl}
 							<!-- Fallback: Show cover image -->
-							<img
-								src={asset.coverUrl}
-								alt={asset.name}
-								class="h-full w-full object-cover"
-							/>
+							<img src={asset.coverUrl} alt={asset.name} class="h-full w-full object-cover" />
 						{:else}
 							<div class="absolute inset-0 flex items-center justify-center bg-black/60">
 								<p class="text-gray-500">No preview available</p>
@@ -187,7 +193,9 @@
 								</button>
 							</div>
 							<div class="relative">
-								<div class="absolute top-0 bottom-0 -left-3 w-1 rounded-full bg-seko-accent/20"></div>
+								<div
+									class="absolute top-0 bottom-0 -left-3 w-1 rounded-full bg-seko-accent/20"
+								></div>
 								<p class="pl-2 leading-relaxed text-gray-300 italic">
 									"{asset.prompt}"
 								</p>
@@ -234,7 +242,7 @@
 							</div>
 							<div class="flex justify-between text-sm">
 								<span class="text-gray-500">Format</span>
-								<span class="font-mono text-gray-300">1080p · MP4</span>
+								<span class="font-mono text-gray-300">{formatString} · MP4</span>
 							</div>
 							<div class="flex justify-between text-sm">
 								<span class="text-gray-500">Type</span>

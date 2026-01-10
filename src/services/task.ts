@@ -179,13 +179,16 @@ export const list = os
       // Logic: 
       // thumbnail: resultCover (video thumb) > referenceCover (image/ref thumb) > null
       // referenceImage: referenceCover
+      // assetLink: resultAssetId (if video completed) > referenceAssetId
 
       const thumbnail = row.resultCover || row.referenceCover || null;
+      const assetLink = row.resultAssetId || row.referenceAssetId || row.id;
 
       return {
         ...row, // This spreads all task columns
         thumbnail: thumbnail,
         referenceImage: row.referenceCover,
+        assetLink: assetLink,
       };
     });
   });
