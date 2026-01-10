@@ -66,7 +66,8 @@
 	<!-- Floating Back Navigation -->
 	<a
 		href="/timeline"
-		class="fixed top-[80px] left-4 z-50 inline-flex items-center gap-2 rounded-full border border-white/10 bg-seko-bg/80 px-4 py-2 text-sm font-medium text-gray-400 backdrop-blur-md transition-colors hover:bg-white/10 hover:text-white md:top-8 md:left-8"
+		class="fixed left-4 z-50 inline-flex items-center gap-2 rounded-full border border-white/10 bg-seko-bg/80 px-4 py-2 text-sm font-medium text-gray-400 backdrop-blur-md transition-colors hover:bg-white/10 hover:text-white md:left-8"
+		style="top: 92px;"
 	>
 		<ChevronLeft class="h-4 w-4" />
 		Back

@@ -81,7 +81,9 @@ type VideoGeneratePayload struct {
 	Prompt    string `json:"Prompt"`
 	ImagePath string `json:"ImagePath"`
 	StyleID   string `json:"StyleID"`
-	UserID    string `json:"UserID"` // Added UserID
+	UserID    string `json:"UserID"`
+	Width     int    `json:"Width"`
+	Height    int    `json:"Height"`
 }
 
 type VideoCheckStatusPayload struct {
@@ -91,7 +93,9 @@ type VideoCheckStatusPayload struct {
 	ExternalID string `json:"ExternalID"`
 	ImagePath  string `json:"ImagePath"` // Reference image path
 	TryCount   int    `json:"TryCount"`
-	UserID     string `json:"UserID"` // Added UserID
+	UserID     string `json:"UserID"`
+	Width      int    `json:"Width"`
+	Height     int    `json:"Height"`
 }
 
 // --------------- 消费者：处理任务 ---------------
@@ -224,7 +228,9 @@ func HandleVideoGenerateTask(ctx context.Context, t *asynq.Task) error {
 		ExternalID: externalID,
 		ImagePath:  p.ImagePath,
 		TryCount:   0,
-		UserID:     p.UserID, // Pass UserID
+		UserID:     p.UserID,
+		Width:      p.Width,
+		Height:     p.Height,
 	})
 
 	client := NewClient()
@@ -452,6 +458,8 @@ func HandleVideoCheckStatusTask(ctx context.Context, t *asynq.Task) error {
 		updateTaskStatus(p.TaskID, "completed", map[string]interface{}{
 			"videoPath":      videoKey,
 			"videoCoverPath": thumbKey,
+			"width":          p.Width,
+			"height":         p.Height,
 		})
 
 		return nil

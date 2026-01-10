@@ -47,6 +47,8 @@ export const POST: RequestHandler = async ({ request }) => {
         // Go sends 'videoPath' (resultUrl) and 'videoCoverPath' (thumbnailUrl)
         const finalVideoPath = videoPath || resultUrl;
         const finalCoverPath = videoCoverPath || thumbnailUrl;
+        const videoWidth = payload.width || 1280;
+        const videoHeight = payload.height || 720;
 
         const [newVideoAsset] = await db.insert(assets).values({
           id: nanoid(),
@@ -58,6 +60,8 @@ export const POST: RequestHandler = async ({ request }) => {
           coverPath: finalCoverPath, // Video thumbnail path
           fromAssetId: task.referenceAssetId, // Link to reference image
           prompt: task.prompt,
+          width: videoWidth,
+          height: videoHeight,
           status: 'unlocked',
           createdAt: new Date(),
           updatedAt: new Date(),

@@ -54,11 +54,16 @@ export const create = os
       styleId: z.string().optional(),
       isImageOnly: z.boolean().default(false),
       filename: z.string().optional(),
+      orientation: z.enum(['landscape', 'portrait']).default('landscape'),
     })
   )
   .handler(async ({ input, context }: { input: any, context: any }) => {
     const { db } = context;
     const userId = 'user_123456'; // TODO: Get from auth context
+
+    // Compute dimensions based on orientation
+    const width = input.orientation === 'portrait' ? 720 : 1280;
+    const height = input.orientation === 'portrait' ? 1280 : 720;
 
     try {
       let imageKey = '';
@@ -100,8 +105,10 @@ export const create = os
         Prompt: input.prompt,
         StyleID: input.styleId,
         AssetID: assetId,
-        UserID: userId, // Add UserID
-        ImagePath: imageKey, // Go will use this to download and generate cover
+        UserID: userId,
+        ImagePath: imageKey,
+        Width: width,
+        Height: height,
       };
 
       if (!input.isImageOnly) {

@@ -19,6 +19,8 @@
 	let fileInput: HTMLInputElement;
 	let selectedStyle: { id: string; name: string; thumbnail: any } | null = null;
 	let isGenerating = false;
+	let orientation: 'landscape' | 'portrait' = 'portrait';
+	let isOrientationOpen = false;
 
 	async function handleGenerate() {
 		if (!prompt.trim() && !uploadedImage) {
@@ -33,7 +35,8 @@
 				prompt,
 				styleId: selectedStyle?.id,
 				isImageOnly,
-				filename: 'reference_image.png'
+				filename: 'reference_image.png',
+				orientation
 			};
 
 			const res = await client.task.create(payload);
@@ -379,7 +382,7 @@
 								/></svg
 							>
 						</label>
-						<button class="transition-all duration-300 hover:scale-110 hover:text-white">
+						<!-- <button class="transition-all duration-300 hover:scale-110 hover:text-white">
 							<svg
 								xmlns="http://www.w3.org/2000/svg"
 								width="24"
@@ -412,7 +415,7 @@
 									d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"
 								/></svg
 							>
-						</button>
+						</button> -->
 						<button
 							class="transition-all duration-300 hover:scale-110 hover:text-white {isStyleSelectorOpen
 								? 'text-white shadow-[0_0_15px_rgba(255,255,255,0.1)]'
@@ -445,6 +448,111 @@
 								/></svg
 							>
 						</button>
+						<!-- Orientation Selector -->
+						<div class="relative">
+							<button
+								class="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm font-medium transition-all duration-300 hover:bg-white/10 {isOrientationOpen
+									? 'border-seko-accent text-seko-accent'
+									: 'text-gray-400'}"
+								on:click={() => (isOrientationOpen = !isOrientationOpen)}
+							>
+								{#if orientation === 'landscape'}
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										width="18"
+										height="18"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2" /></svg
+									>
+									<span>横屏</span>
+								{:else}
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										width="18"
+										height="18"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" /></svg
+									>
+									<span>竖屏</span>
+								{/if}
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									width="14"
+									height="14"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									class="transition-transform {isOrientationOpen ? 'rotate-180' : ''}"
+									><path d="m6 9 6 6 6-6" /></svg
+								>
+							</button>
+							{#if isOrientationOpen}
+								<div
+									transition:fly={{ y: -10, duration: 200 }}
+									class="absolute bottom-full left-0 mb-2 w-36 overflow-hidden rounded-xl border border-white/10 bg-[#1a1a1a] shadow-xl backdrop-blur-xl"
+								>
+									<button
+										class="flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors {orientation ===
+										'landscape'
+											? 'bg-seko-accent/10 text-seko-accent'
+											: 'text-gray-300 hover:bg-white/5'}"
+										on:click={() => {
+											orientation = 'landscape';
+											isOrientationOpen = false;
+										}}
+									>
+										<svg
+											xmlns="http://www.w3.org/2000/svg"
+											width="18"
+											height="18"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											><rect width="20" height="14" x="2" y="5" rx="2" /></svg
+										>
+										<span>横屏</span>
+									</button>
+									<button
+										class="flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors {orientation ===
+										'portrait'
+											? 'bg-seko-accent/10 text-seko-accent'
+											: 'text-gray-300 hover:bg-white/5'}"
+										on:click={() => {
+											orientation = 'portrait';
+											isOrientationOpen = false;
+										}}
+									>
+										<svg
+											xmlns="http://www.w3.org/2000/svg"
+											width="18"
+											height="18"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											><rect width="14" height="20" x="5" y="2" rx="2" /></svg
+										>
+										<span>竖屏</span>
+									</button>
+								</div>
+							{/if}
+						</div>
 					</div>
 
 					<div class="flex items-center space-x-6">
