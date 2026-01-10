@@ -81,6 +81,7 @@ type VideoGeneratePayload struct {
 	Prompt    string `json:"Prompt"`
 	ImagePath string `json:"ImagePath"`
 	StyleID   string `json:"StyleID"`
+	UserID    string `json:"UserID"` // Added UserID
 }
 
 type VideoCheckStatusPayload struct {
@@ -90,6 +91,7 @@ type VideoCheckStatusPayload struct {
 	ExternalID string `json:"ExternalID"`
 	ImagePath  string `json:"ImagePath"` // Reference image path
 	TryCount   int    `json:"TryCount"`
+	UserID     string `json:"UserID"` // Added UserID
 }
 
 // --------------- 消费者：处理任务 ---------------
@@ -138,24 +140,18 @@ func HandleVideoGenerateTask(ctx context.Context, t *asynq.Task) error {
 		return fmt.Errorf("marshal error: %v", err)
 	}
 
-	fmt.Printf("=== [VIDEO] Starting: %s (Asset: %s) ===\n", p.TaskID, p.AssetID)
+	fmt.Printf("=== [VIDEO] Starting: %s (Asset: %s, User: %s) ===\n", p.TaskID, p.AssetID, p.UserID)
 
-	// 1. Download Reference Image from R2
+	// 1. Download Reference Image from R2 (Private 'jeweai' bucket)
 	tmpDir := "tmp"
 	os.MkdirAll(tmpDir, 0755)
 	localRefPath := filepath.Join(tmpDir, fmt.Sprintf("%s_ref.png", p.TaskID))
-	defer os.Remove(localRefPath) // Clean up later
+	defer os.Remove(localRefPath)
 
-	// The ImagePath in payload is the Key in R2 (original/...)
-	// Assume bucket is R2_PUBLIC_BUCKET or default 'covers' (actually should check env)
-	// Actually, main.go uses R2_PUBLIC_BUCKET for uploads. Let's use it for downloads too if it's the same bucket or 'jeweai' bucket?
-	// The implementation plan says "upload to R2 (original/)".
-	// Let's assume R2_PUBLIC_BUCKET is the main bucket for simplicity or 'jeweai' if public is covers.
-	// Best guess: user probably uses one bucket or two.
-	// I'll try R2_PUBLIC_BUCKET first.
-	bucketName := os.Getenv("R2_PUBLIC_BUCKET")
+	// Original image uploaded to 'jeweai' bucket in Node.js service
+	bucketName := os.Getenv("R2_BUCKET")
 	if bucketName == "" {
-		bucketName = "covers"
+		bucketName = "jeweai"
 	}
 
 	err := downloadFromR2(ctx, bucketName, p.ImagePath, localRefPath)
@@ -165,18 +161,28 @@ func HandleVideoGenerateTask(ctx context.Context, t *asynq.Task) error {
 	}
 
 	// 2. Generate 720p Cover for Reference
-	// ffmpeg -i input.png -vf scale=-1:720 output.png
 	localCoverPath := filepath.Join(tmpDir, fmt.Sprintf("%s_ref_cover.png", p.TaskID))
 	err = generateReferenceCover(localRefPath, localCoverPath)
 	coverKey := ""
 	if err == nil {
-		// Upload Cover
-		// Use same directory structure but maybe different postfix or folder?
-		// Key: "covers/locks/..." or just modify original key?
-		// User: "store small cover to R2... pass cover path... update"
-		// Let's store in `covers/reference/<id>.png`
-		coverKey = fmt.Sprintf("covers/reference/%s_720p.png", p.TaskID)
-		err = uploadToR2(ctx, localCoverPath, bucketName, coverKey)
+		// Upload Cover to public bucket 'covers'
+		// Path: users/{userID}/covers/{videoID}_ref.png?
+		// Or keep simple: covers/reference/...
+		// User said: "thumb stored in covers bucket... public... and placed in corresponding user directory"
+		// "all image covers... in covers bucket userid123456..."
+
+		coversBucket := os.Getenv("R2_PUBLIC_BUCKET")
+		if coversBucket == "" {
+			coversBucket = "covers"
+		}
+
+		safeUserID := p.UserID
+		if safeUserID == "" {
+			safeUserID = "unknown"
+		}
+
+		coverKey = fmt.Sprintf("users/%s/assets/%s_720p.png", safeUserID, p.TaskID)
+		err = uploadToR2(ctx, localCoverPath, coversBucket, coverKey)
 		if err != nil {
 			fmt.Printf("[VIDEO] Upload cover warning: %v\n", err)
 		}
@@ -199,15 +205,15 @@ func HandleVideoGenerateTask(ctx context.Context, t *asynq.Task) error {
 		externalID = fmt.Sprintf("mock_ext_%d", time.Now().UnixNano())
 	} else {
 		fmt.Printf("[VIDEO] Sending real request to AI Provider...\n")
-		// Prepare Multipart Request
-		extID, err := submitVideoTask(apiKey, p.Prompt, localRefPath)
-		if err != nil {
-			fmt.Printf("[VIDEO] Failed to submit video task: %v\n", err)
-			updateTaskStatus(p.TaskID, "failed", nil)
-			return nil
-		}
-		externalID = extID
-		fmt.Printf("[VIDEO] Real Task Submitted. ID: %s\n", externalID)
+		// // Prepare Multipart Request
+		// extID, err := submitVideoTask(apiKey, p.Prompt, localRefPath)
+		// if err != nil {
+		// 	fmt.Printf("[VIDEO] Failed to submit video task: %v\n", err)
+		// 	updateTaskStatus(p.TaskID, "failed", nil)
+		// 	return nil
+		// }
+		// externalID = extID
+		// fmt.Printf("[VIDEO] Real Task Submitted. ID: %s\n", externalID)
 	}
 
 	// 5. Enqueue Status Check
@@ -218,6 +224,7 @@ func HandleVideoGenerateTask(ctx context.Context, t *asynq.Task) error {
 		ExternalID: externalID,
 		ImagePath:  p.ImagePath,
 		TryCount:   0,
+		UserID:     p.UserID, // Pass UserID
 	})
 
 	client := NewClient()
@@ -335,6 +342,7 @@ func HandleVideoCheckStatusTask(ctx context.Context, t *asynq.Task) error {
 	if err := json.Unmarshal(t.Payload(), &p); err != nil {
 		return fmt.Errorf("marshal error: %v", err)
 	}
+	p.ExternalID = "video_d73099dc-4193-40bd-b8b5-485bf01aa18b" // TODO:
 
 	fmt.Printf("=== [VIDEO] Checking Status: %s (Ext: %s, Try: %d) ===\n", p.TaskID, p.ExternalID, p.TryCount)
 
@@ -342,7 +350,7 @@ func HandleVideoCheckStatusTask(ctx context.Context, t *asynq.Task) error {
 	apiKey := os.Getenv("AI_API_KEY")
 
 	// Check Logic
-	if apiKey == "" || p.ExternalID[:5] == "mock_" {
+	if apiKey == "" || (len(p.ExternalID) >= 5 && p.ExternalID[:5] == "mock_") {
 		// MOCK Logic
 		if p.TryCount < 2 {
 			status = "processing"
@@ -384,7 +392,7 @@ func HandleVideoCheckStatusTask(ctx context.Context, t *asynq.Task) error {
 		if apiKey != "" && p.ExternalID[:5] != "mock_" {
 			err := downloadVideoContent(apiKey, p.ExternalID, tmpVideoPath)
 			if err != nil {
-				fmt.Printf("[VIDEO] Download Content Error: %v. Falling back to dummy.\n", err)
+				fmt.Printf("[VIDEO] Content Download Error: %v\n", err)
 				createDummyVideo(tmpVideoPath)
 			}
 		} else {
@@ -402,26 +410,42 @@ func HandleVideoCheckStatusTask(ctx context.Context, t *asynq.Task) error {
 		}
 		defer os.Remove(thumbPath)
 
-		// Upload to R2
+		// Storage Logic
+		// Video -> Jeweai (Private)
+		// Thumb -> Covers (Public)
+		// User Path: users/{userID}/videos/...
+
+		safeUserID := p.UserID
+		if safeUserID == "" {
+			safeUserID = "unknown"
+		}
+
 		jeweaiBucket := os.Getenv("R2_BUCKET")
 		if jeweaiBucket == "" {
 			jeweaiBucket = "jeweai"
 		}
 
-		videoKey := fmt.Sprintf("videos/%s.mp4", p.VideoID)
-		thumbKey := fmt.Sprintf("videos/%s_thumb.png", p.VideoID)
+		coversBucket := os.Getenv("R2_PUBLIC_BUCKET")
+		if coversBucket == "" {
+			coversBucket = "covers"
+		}
+
+		videoKey := fmt.Sprintf("users/%s/videos/%s.mp4", safeUserID, p.VideoID)
+		thumbKey := fmt.Sprintf("users/%s/videos/%s_thumb.png", safeUserID, p.VideoID)
 
 		// NOTE: uploadToR2 is from main.go
+		// Upload Video (Private)
 		err = uploadToR2(ctx, tmpVideoPath, jeweaiBucket, videoKey)
 		if err != nil {
 			fmt.Printf("Upload video error: %v\n", err)
 		}
-		err = uploadToR2(ctx, thumbPath, jeweaiBucket, thumbKey)
+		// Upload Thumb (Public)
+		err = uploadToR2(ctx, thumbPath, coversBucket, thumbKey)
 		if err != nil {
 			fmt.Printf("Upload thumb error: %v\n", err)
 		}
 
-		fmt.Printf("[VIDEO] Processed & Uploaded: %s, %s\n", videoKey, thumbKey)
+		fmt.Printf("[VIDEO] Processed & Uploaded: %s (Private), %s (Public)\n", videoKey, thumbKey)
 
 		// User asked to notify Nodejs: "task completed... video and thumbnail... asset created"
 		// Send "completed" webhook with `videoPath` and `videoCoverPath`

@@ -14,12 +14,12 @@ import {
 } from "$env/static/private";
 
 // Helper to upload to R2 using Cloudflare API
-async function uploadToR2(key: string, data: Uint8Array, contentType: string) {
-  console.log(`[R2] Uploading to key: ${key}, size: ${data.length}`);
+async function uploadToR2(key: string, data: Uint8Array, contentType: string, bucketName?: string) {
+  console.log(`[R2] Uploading to key: ${key}, size: ${data.length}, bucket: ${bucketName || 'default'}`);
 
   // Standard R2 keys usually don't start with /.
   const safeKey = key.startsWith('/') ? key.slice(1) : key;
-  const currentBucket = R2_PUBLIC_BUCKET || 'covers';
+  const currentBucket = bucketName || R2_PUBLIC_BUCKET || 'covers';
   const url = `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${currentBucket}/objects/${safeKey}`;
 
   try {
@@ -65,16 +65,17 @@ export const create = os
       let assetId = '';
 
       if (input.image) {
-        // 1. Process and Upload image to R2 (folder: original)
+        // 1. Process and Upload image to R2 (Private Bucket 'jeweai')
         const base64Data = input.image.replace(/^data:image\/\w+;base64,/, "");
         const imageBuffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
         const id = nanoid();
         const safeFilename = (input.filename || 'input.png').replace(/[^a-zA-Z0-9.]/g, '_');
 
-        // Change: Store in 'original/' instead of 'locks/'
-        imageKey = `original/${userId}/${id}_${safeFilename}`;
+        // Path: userID/id_filename
+        imageKey = `${userId}/${id}_${safeFilename}`;
 
-        await uploadToR2(imageKey, imageBuffer, 'image/png');
+        // Upload to Private Bucket (R2_BUCKET usually 'jeweai')
+        await uploadToR2(imageKey, imageBuffer, 'image/png', R2_BUCKET || 'jeweai');
 
         // Create Asset record (unlocked immediately)
         const [newAsset] = await db.insert(assets).values({
@@ -99,6 +100,7 @@ export const create = os
         Prompt: input.prompt,
         StyleID: input.styleId,
         AssetID: assetId,
+        UserID: userId, // Add UserID
         ImagePath: imageKey, // Go will use this to download and generate cover
       };
 
@@ -150,21 +152,40 @@ export const create = os
     }
   });
 
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, getTableColumns } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/sqlite-core';
 
 export const list = os
   .handler(async ({ context }: { context: any }) => {
     const { db } = context;
     const userId = 'user_123456'; // TODO: auth
 
-    // Fetch tasks from database
-    const allTasks = await db.select()
+    const refAssets = alias(assets, 'ref');
+    const resAssets = alias(assets, 'res');
+
+    // Fetch tasks from database with joins
+    const allTasks = await db.select({
+      ...getTableColumns(tasks), // Select all task columns
+      referenceCover: refAssets.coverPath,
+      resultCover: resAssets.coverPath,
+    })
       .from(tasks)
+      .leftJoin(refAssets, eq(tasks.referenceAssetId, refAssets.id))
+      .leftJoin(resAssets, eq(tasks.resultAssetId, resAssets.id))
       .where(eq(tasks.userId, userId))
       .orderBy(desc(tasks.createdAt));
 
-    return allTasks.map((t: any) => ({
-      ...t,
-      thumbnail: t.thumbnailUrl,
-    }));
+    return allTasks.map((row: any) => {
+      // Logic: 
+      // thumbnail: resultCover (video thumb) > referenceCover (image/ref thumb) > null
+      // referenceImage: referenceCover
+
+      const thumbnail = row.resultCover || row.referenceCover || null;
+
+      return {
+        ...row, // This spreads all task columns
+        thumbnail: thumbnail,
+        referenceImage: row.referenceCover,
+      };
+    });
   });
