@@ -2,108 +2,132 @@
 	import AssetsGrid from '$lib/components/assets/AssetsGrid.svelte';
 	import ContextMenu from '$lib/components/assets/ContextMenu.svelte';
 	import FileToolbar from '$lib/components/assets/FileToolbar.svelte';
+	import AssetDetailModal from '$lib/components/assets/AssetDetailModal.svelte';
 	import type { Asset } from '$lib/types/assets';
 	import { onMount } from 'svelte';
-
-	// Icons
-	import galleryRing from '$lib/assets/gallery-ring.png';
-	import galleryNecklace from '$lib/assets/gallery-necklace.png';
-	import galleryEarrings from '$lib/assets/gallery-earrings.png';
-	import galleryBracelet from '$lib/assets/gallery-bracelet.png';
-	import galleryPortrait1 from '$lib/assets/gallery-portrait-1.png';
-	import galleryPortrait2 from '$lib/assets/gallery-portrait-2.png';
+	import { client } from '$lib/orpc';
 
 	// State
-	let assets = $state<Asset[]>([
-		// Initial Roots
-		{ id: 'f1', parentId: null, name: 'Campaign 2024', type: 'folder', createdAt: Date.now() },
-		{ id: 'f2', parentId: null, name: 'Social Media', type: 'folder', createdAt: Date.now() },
-		{
-			id: 'v1',
-			parentId: null,
-			name: 'Intro',
-			type: 'video',
-			thumbnail: galleryRing,
-			duration: '0:15',
-			createdAt: Date.now()
-		},
-		// Inside Campaign 2024
-		{
-			id: 'v2',
-			parentId: 'f1',
-			name: 'Teaser',
-			type: 'video',
-			thumbnail: galleryPortrait1,
-			duration: '0:12',
-			createdAt: Date.now()
-		},
-		{
-			id: 'v3',
-			parentId: 'f1',
-			name: 'Full Ad',
-			type: 'video',
-			thumbnail: galleryNecklace,
-			duration: '0:30',
-			createdAt: Date.now()
-		},
-		// Nested Folder
-		{ id: 'f3', parentId: 'f1', name: 'Drafts', type: 'folder', createdAt: Date.now() },
-		// Inside Drafts
-		{
-			id: 'v4',
-			parentId: 'f3',
-			name: 'Draft 1',
-			type: 'video',
-			thumbnail: galleryEarrings,
-			duration: '0:10',
-			createdAt: Date.now()
-		}
-	]);
-
+	let assets = $state<Asset[]>([]);
+	let folders = $state<Asset[]>([]);
+	let isLoading = $state(true);
 	let currentFolderId = $state<string | null>(null);
 	let selectedIds = $state<string[]>([]);
 	let renamingId = $state<string | null>(null);
 	let clipboard = $state<{ op: 'copy' | 'cut'; items: Asset[] } | null>(null);
 	let contextMenu = $state<{ x: number; y: number } | null>(null);
+	let detailModalAssetId = $state<string | null>(null);
 
 	// Derived
-	let visibleAssets = $derived(assets.filter((a) => a.parentId === currentFolderId));
-	let currentPath = $derived(buildPath(currentFolderId));
+	let visibleAssets = $derived(
+		[...folders, ...assets].filter((a) => {
+			if (currentFolderId === null) {
+				return a.folderId === null || a.folderId === undefined;
+			}
+			return a.folderId === currentFolderId;
+		})
+	);
+	let currentPath = $state<Asset[]>([]);
 
-	function buildPath(folderId: string | null): Asset[] {
-		if (!folderId) return [];
-		const folder = assets.find((a) => a.id === folderId);
-		if (!folder) return [];
-		return [...buildPath(folder.parentId), folder];
+	async function buildPath(folderId: string | null): Promise<Asset[]> {
+		if (!folderId) {
+			currentPath = [];
+			return [];
+		}
+		
+		try {
+			// Get folder from API to ensure we have the latest data
+			const folder = await client.assets.getFolder({ id: folderId });
+			const parentPath = await buildPath(folder.parentId || null);
+			const fullPath = [...parentPath, {
+				id: folder.id,
+				parentId: folder.parentId,
+				folderId: folder.parentId,
+				name: folder.name,
+				type: 'folder' as const,
+				createdAt: folder.createdAt,
+				updatedAt: folder.updatedAt,
+			}];
+			currentPath = fullPath;
+			return fullPath;
+		} catch (err) {
+			console.error('Failed to build path:', err);
+			currentPath = [];
+			return [];
+		}
 	}
 
+	// Load data
+	async function loadAssets() {
+		isLoading = true;
+		try {
+			const allItems = await client.assets.list({ folderId: currentFolderId, includeFolders: true });
+			// Separate folders and assets
+			const items = allItems.map((item) => ({
+				...item,
+				parentId: item.folderId || null,
+				thumbnail: item.coverUrl || undefined,
+			}));
+			assets = items.filter((a) => a.type !== 'folder');
+			folders = items.filter((a) => a.type === 'folder');
+		} catch (err: any) {
+			console.error('Failed to load assets:', err);
+		} finally {
+			isLoading = false;
+		}
+	}
+
+	onMount(async () => {
+		await buildPath(currentFolderId);
+		await loadAssets();
+	});
+
 	// Actions
-	function handleNavigate(folderId: string | null) {
+	async function handleNavigate(folderId: string | null) {
 		currentFolderId = folderId;
 		selectedIds = [];
 		renamingId = null;
 		contextMenu = null;
+		await buildPath(folderId);
+		await loadAssets();
 	}
 
-	function handleCreateFolder() {
-		const newFolder: Asset = {
-			id: crypto.randomUUID(),
-			parentId: currentFolderId,
-			name: 'New Folder',
-			type: 'folder',
-			createdAt: Date.now()
-		};
-		assets = [...assets, newFolder];
-		// Auto select and rename
-		selectedIds = [newFolder.id];
-		renamingId = newFolder.id;
+	async function handleCreateFolder() {
+		try {
+			const result = await client.assets.createFolder({ 
+				name: 'New Folder',
+				parentId: currentFolderId 
+			});
+			await loadAssets();
+			selectedIds = [result.id];
+			renamingId = result.id;
+		} catch (err: any) {
+			console.error('Failed to create folder:', err);
+			alert('Failed to create folder: ' + (err.message || 'Unknown error'));
+		}
 	}
 
-	function handleRenameSubmit(id: string, newName: string) {
-		if (!newName.trim()) return; // Revert if empty? Or keep old? Let's keep old or just trim.
-		const index = assets.findIndex((a) => a.id === id);
-		if (index !== -1) {
-			assets[index].name = newName;
+	async function handleRenameSubmit(id: string, newName: string) {
+		if (!newName.trim()) return;
+		
+		// Check if locked
+		const item = assets.find((a) => a.id === id) || folders.find((a) => a.id === id);
+		if (item && item.status === 'locked') {
+			alert('Cannot rename locked assets');
+			renamingId = null;
+			return;
+		}
+
+		try {
+			if (item?.type === 'folder') {
+				await client.assets.updateFolder({ id, name: newName.trim() });
+			} else {
+				await client.assets.update({ id, name: newName.trim() });
+			}
+			await loadAssets();
+		} catch (err: any) {
+			console.error('Failed to rename:', err);
+			alert('Failed to rename: ' + (err.message || 'Unknown error'));
 		}
 		renamingId = null;
 	}
@@ -112,143 +136,128 @@
 		renamingId = null;
 	}
 
-	function handleDelete() {
+	async function handleDelete() {
 		if (selectedIds.length === 0) return;
 
-		const toDeleteIds = new Set<string>();
-
-		function collect(targetId: string) {
-			toDeleteIds.add(targetId);
-			assets.filter((a) => a.parentId === targetId).forEach((child) => collect(child.id));
+		// Check if any selected asset is locked
+		const selectedItems = [...assets, ...folders].filter((a) => selectedIds.includes(a.id));
+		const lockedItems = selectedItems.filter((a) => a.status === 'locked');
+		if (lockedItems.length > 0) {
+			alert('Cannot delete locked assets');
+			return;
 		}
 
-		selectedIds.forEach((id) => collect(id));
-		assets = assets.filter((a) => !toDeleteIds.has(a.id));
-		selectedIds = [];
+		if (!confirm(`Delete ${selectedIds.length} item(s)? This will also delete all contents if deleting folders.`)) return;
+
+		try {
+			for (const id of selectedIds) {
+				const item = assets.find((a) => a.id === id) || folders.find((a) => a.id === id);
+				if (item) {
+					if (item.type === 'folder') {
+						await client.assets.deleteFolder({ id });
+					} else {
+						await client.assets.delete({ id });
+					}
+				}
+			}
+			await loadAssets();
+			selectedIds = [];
+		} catch (err: any) {
+			console.error('Failed to delete:', err);
+			alert('Failed to delete: ' + (err.message || 'Unknown error'));
+		}
 	}
 
 	function handleCopy() {
 		if (selectedIds.length === 0) return;
-		const itemsToCopy = assets.filter((a) => selectedIds.includes(a.id));
+		const itemsToCopy = [...assets, ...folders].filter((a) => selectedIds.includes(a.id));
 		clipboard = { op: 'copy', items: itemsToCopy };
 	}
 
 	function handleCut() {
 		if (selectedIds.length === 0) return;
-		const itemsToCut = assets.filter((a) => selectedIds.includes(a.id));
+		const itemsToCut = [...assets, ...folders].filter((a) => selectedIds.includes(a.id));
+		
+		// Check if any item is locked
+		const lockedItems = itemsToCut.filter((a) => a.status === 'locked');
+		if (lockedItems.length > 0) {
+			alert('Cannot cut locked assets');
+			return;
+		}
+
 		clipboard = { op: 'cut', items: itemsToCut };
 	}
 
-	function handlePaste() {
+	async function handlePaste() {
 		if (!clipboard) return;
 
 		if (clipboard.op === 'copy') {
-			// Re-implemeting paste with recursion:
-			const clones: Asset[] = [];
-			const idMap = new Map<string, string>(); // Old ID -> New ID
-
-			// First pass: Clone roots and map IDs
-			clipboard.items.forEach((item) => {
-				const newId = crypto.randomUUID();
-				idMap.set(item.id, newId);
-				clones.push({
-					...item,
-					id: newId,
-					parentId: currentFolderId, // New parent is current view
-					name: item.name, // Name conflict? Let's append Copy if same parent, but here we pasting probably in same folder or other.
-					// If pasting in same folder, rename.
-					createdAt: Date.now()
-				});
-			});
-
-			// If any item was a folder, we need to find its children in the ORIGINAL assets list (if we can find them)
-			// But wait, 'clipboard.items' only contains the selected items.
-			// If we copy a folder, we expect its children to be copied too.
-			// Current simplicity: Shallow copy references or we need to fetch children from global 'assets'
-
-			// Recursive Copy Helper
-			const deepCopy = (originalId: string, newParentId: string) => {
-				const children = assets.filter((a) => a.parentId === originalId);
-				children.forEach((child) => {
-					const newChildId = crypto.randomUUID();
-					clones.push({
-						...child,
-						id: newChildId,
-						parentId: newParentId,
-						createdAt: Date.now()
-					});
-					if (child.type === 'folder') {
-						deepCopy(child.id, newChildId);
-					}
-				});
-			};
-
-			// Execute Deep Copy for each pasted item
-			clipboard.items.forEach((item, idx) => {
-				// Detect name collision in current folder
-				let finalName = item.name;
-				if (item.parentId === currentFolderId) {
-					finalName = `${item.name} copy`; // Classic behavior
-				}
-
-				// Update root clone name
-				const rootClone = clones[idx]; // It corresponds to items[idx]
-				rootClone.name = finalName;
-
-				if (item.type === 'folder') {
-					deepCopy(item.id, rootClone.id);
-				}
-			});
-
-			assets = [...assets, ...clones];
-		} else if (clipboard.op === 'cut') {
-			// Move items
-			// Check for circular move
-			const targetId = currentFolderId;
-			let validMove = true;
-
-			// We can't move a folder into itself or its children
-			// Check each item
-			for (const item of clipboard.items) {
-				if (item.type === 'folder') {
-					let check = targetId;
-					while (check) {
-						if (check === item.id) {
-							validMove = false;
-							break;
-						}
-						const p = assets.find((a) => a.id === check);
-						check = p?.parentId || null;
+			// Copy operation - create duplicates
+			try {
+				for (const item of clipboard.items) {
+					if (item.type === 'folder') {
+						// For folders, create new folder and recursively copy contents
+						// This is simplified - full recursive copy would need more logic
+						const newFolder = await client.assets.createFolder({
+							name: `${item.name} copy`,
+							parentId: currentFolderId
+						});
+						// TODO: Recursively copy folder contents
+					} else {
+						// Copy asset (including R2 files)
+						await client.assets.copy({
+							id: item.id,
+							folderId: currentFolderId
+						});
 					}
 				}
-				if (!validMove) break;
+				await loadAssets();
+			} catch (err: any) {
+				console.error('Failed to copy:', err);
+				alert('Failed to copy: ' + (err.message || 'Unknown error'));
 			}
-
-			if (validMove) {
-				assets = assets.map((a) => {
-					if (clipboard!.items.some((c) => c.id === a.id)) {
-						return { ...a, parentId: currentFolderId };
+		} else if (clipboard.op === 'cut') {
+			// Move operation
+			try {
+				for (const item of clipboard.items) {
+					if (item.type === 'folder') {
+						await client.assets.updateFolder({
+							id: item.id,
+							parentId: currentFolderId
+						});
+					} else {
+						await client.assets.update({
+							id: item.id,
+							folderId: currentFolderId
+						});
 					}
-					return a;
-				});
-				clipboard = null; // Clear clipboard after move
-			} else {
-				alert('Cannot move a folder into itself.');
+				}
+				await loadAssets();
+				clipboard = null;
+			} catch (err: any) {
+				console.error('Failed to move:', err);
+				alert('Failed to move: ' + (err.message || 'Unknown error'));
 			}
 		}
 	}
 
-	function handleMove(draggedIds: string[], targetId: string | null) {
-		// If targetId is provided, verify it exists and is a folder
+	async function handleMove(draggedIds: string[], targetId: string | null) {
+		// Check if any dragged item is locked
+		const draggedItems = [...assets, ...folders].filter((a) => draggedIds.includes(a.id));
+		const lockedItems = draggedItems.filter((a) => a.status === 'locked');
+		if (lockedItems.length > 0) {
+			alert('Cannot move locked assets');
+			return;
+		}
+
 		if (targetId) {
-			const target = assets.find((a) => a.id === targetId);
+			const target = folders.find((a) => a.id === targetId);
 			if (!target || target.type !== 'folder') return;
 		}
 
 		// Prevent circular
 		for (const draggedId of draggedIds) {
-			if (targetId && draggedId === targetId) continue; // Move to self? logic error in caller usually, but check
-
+			if (targetId && draggedId === targetId) continue;
 			let check: string | null = targetId;
 			let isCircular = false;
 			while (check) {
@@ -256,19 +265,35 @@
 					isCircular = true;
 					break;
 				}
-				const p = assets.find((a) => a.id === check);
-				check = p?.parentId || null;
+				const p = folders.find((a) => a.id === check);
+				check = p?.folderId || null;
 			}
 			if (isCircular) return;
 		}
 
-		assets = assets.map((a) => {
-			if (draggedIds.includes(a.id)) {
-				return { ...a, parentId: targetId };
+		try {
+			for (const id of draggedIds) {
+				const item = assets.find((a) => a.id === id) || folders.find((a) => a.id === id);
+				if (item) {
+					if (item.type === 'folder') {
+						await client.assets.updateFolder({
+							id,
+							parentId: targetId
+						});
+					} else {
+						await client.assets.update({
+							id,
+							folderId: targetId
+						});
+					}
+				}
 			}
-			return a;
-		});
-		selectedIds = [];
+			await loadAssets();
+			selectedIds = [];
+		} catch (err: any) {
+			console.error('Failed to move:', err);
+			alert('Failed to move: ' + (err.message || 'Unknown error'));
+		}
 	}
 
 	function handleBreadcrumbDrop(e: DragEvent, targetId: string | null) {
@@ -287,7 +312,6 @@
 	// Context Menu Handlers
 	function onContextMenu(e: MouseEvent, asset: Asset) {
 		e.preventDefault();
-		// If clicking outside selection, select just this one
 		if (!selectedIds.includes(asset.id)) {
 			selectedIds = [asset.id];
 		}
@@ -295,26 +319,35 @@
 	}
 
 	function onBackgroundContextMenu(e: MouseEvent) {
-		// e.preventDefault();
-		// Optional: Context menu for empty space (Paste, New Folder)
-		// For now let's just use it to clear selection or ignore
+		// Optional: Context menu for empty space
 	}
+
+	function handleDblClick(asset: Asset) {
+		if (asset.type === 'folder') {
+			handleNavigate(asset.id);
+		} else {
+			// Open detail modal
+			detailModalAssetId = asset.id;
+		}
+	}
+
+	// Check if any selected item is locked
+	let hasLockedSelection = $derived(
+		selectedIds.some((id) => {
+			const item = [...assets, ...folders].find((a) => a.id === id);
+			return item?.status === 'locked';
+		})
+	);
 </script>
 
 <div
 	class="flex min-h-screen flex-col p-6"
 	role="presentation"
-	onclick={() => {
-		// Clear selection if clicking background (AssetGrid handles its own background clicks too but this catches margins)
-		// But check if we didn't click toolbar or something
-		// Ideally handled by AssetGrid's container click
-	}}
 >
 	<div class="container mx-auto flex flex-1 flex-col">
 		<!-- Header & Breadcrumbs -->
 		<div class="mb-6 flex items-center justify-between">
 			<div>
-				<!-- <h1 class="mb-2 text-3xl font-bold text-white">Assets</h1> -->
 				<div class="flex items-center gap-2 text-sm text-gray-400">
 					<!-- Home Breadcrumb -->
 					<button
@@ -343,53 +376,66 @@
 		<!-- Toolbar -->
 		<FileToolbar
 			canPaste={!!clipboard}
-			hasSelection={selectedIds.length > 0}
+			hasSelection={selectedIds.length > 0 && !hasLockedSelection}
 			onCreateFolder={handleCreateFolder}
 			onCopy={handleCopy}
 			onCut={handleCut}
 			onPaste={handlePaste}
 			onDelete={handleDelete}
 			onRename={() => {
-				if (selectedIds.length === 1) renamingId = selectedIds[0];
+				if (selectedIds.length === 1 && !hasLockedSelection) renamingId = selectedIds[0];
 			}}
 		/>
 
 		<!-- Grid -->
-		<AssetsGrid
-			items={visibleAssets}
-			{selectedIds}
-			{renamingId}
-			onSelect={(ids) => (selectedIds = ids)}
-			onDblClick={(asset) => {
-				if (asset.type === 'folder') handleNavigate(asset.id);
-			}}
-			{onContextMenu}
-			onDrop={handleMove}
-			onRenameSubmit={handleRenameSubmit}
-			onRenameCancel={handleRenameCancel}
-		/>
-
-		{#if visibleAssets.length === 0}
-			<div class="mt-20 flex flex-col items-center justify-center text-gray-500">
-				<p class="mb-4 text-lg">Empty folder</p>
+		{#if isLoading}
+			<div class="flex items-center justify-center py-20">
+				<div
+					class="h-12 w-12 animate-spin rounded-full border-2 border-white/20 border-t-seko-accent"
+				></div>
 			</div>
+		{:else}
+			<AssetsGrid
+				items={visibleAssets}
+				{selectedIds}
+				{renamingId}
+				onSelect={(ids) => (selectedIds = ids)}
+				onDblClick={handleDblClick}
+				{onContextMenu}
+				onDrop={handleMove}
+				onRenameSubmit={handleRenameSubmit}
+				onRenameCancel={handleRenameCancel}
+			/>
+
+			{#if visibleAssets.length === 0}
+				<div class="mt-20 flex flex-col items-center justify-center text-gray-500">
+					<p class="mb-4 text-lg">Empty folder</p>
+				</div>
+			{/if}
 		{/if}
 	</div>
 
 	{#if contextMenu}
+		{@const selectedAsset = [...assets, ...folders].find((a) => selectedIds[0] === a.id)}
+		{@const isLocked = selectedAsset?.status === 'locked'}
 		<ContextMenu
 			x={contextMenu.x}
 			y={contextMenu.y}
 			onClose={() => (contextMenu = null)}
 			onRename={() => {
-				if (selectedIds.length === 1) renamingId = selectedIds[0];
+				if (selectedIds.length === 1 && !isLocked) renamingId = selectedIds[0];
 			}}
 			onDelete={handleDelete}
 			onCopy={handleCopy}
 			onCut={handleCut}
 			onPaste={handlePaste}
 			canPaste={!!clipboard}
-			hasSelection={selectedIds.length > 0}
+			hasSelection={selectedIds.length > 0 && !isLocked}
+			canCopy={selectedIds.length > 0}
 		/>
+	{/if}
+
+	{#if detailModalAssetId}
+		<AssetDetailModal assetId={detailModalAssetId} onClose={() => (detailModalAssetId = null)} />
 	{/if}
 </div>

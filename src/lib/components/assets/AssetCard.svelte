@@ -74,6 +74,14 @@
 			onselect?.(e);
 		}
 	}
+
+	function handleDragStart(e: DragEvent) {
+		if (asset.status === 'locked') {
+			e.preventDefault();
+			return;
+		}
+		ondragstart?.(e);
+	}
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -85,8 +93,8 @@
 	onclick={handleClick}
 	{ondblclick}
 	{oncontextmenu}
-	draggable={!renaming}
-	{ondragstart}
+	draggable={!renaming && asset.status !== 'locked'}
+	ondragstart={handleDragStart}
 	ondragover={handleDragOver}
 	ondragleave={handleDragLeave}
 	ondrop={handleDrop}
@@ -107,30 +115,32 @@
 				/>
 			</svg>
 		{:else}
-			<!-- Video Thumbnail/Icon -->
-			{#if asset.thumbnail}
+			<!-- Video/Image Thumbnail/Icon -->
+			{#if asset.thumbnail || asset.coverUrl}
 				<img
-					src={asset.thumbnail}
+					src={asset.thumbnail || asset.coverUrl}
 					alt={asset.name}
 					class="h-full w-full object-cover transition-transform duration-300 group-hover:scale-110"
 				/>
-				<!-- Play Icon Overlay -->
-				<div
-					class="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 transition-opacity group-hover:opacity-100"
-				>
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						viewBox="0 0 24 24"
-						fill="currentColor"
-						class="h-8 w-8 text-white drop-shadow-lg"
+				<!-- Play Icon Overlay for videos -->
+				{#if asset.type === 'video'}
+					<div
+						class="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 transition-opacity group-hover:opacity-100"
 					>
-						<path
-							fill-rule="evenodd"
-							d="M4.5 5.653c0-1.426 1.529-2.33 2.779-1.643l11.54 6.348c1.295.712 1.295 2.573 0 3.285L7.28 19.991c-1.25.687-2.779-.217-2.779-1.643V5.653Z"
-							clip-rule="evenodd"
-						/>
-					</svg>
-				</div>
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							viewBox="0 0 24 24"
+							fill="currentColor"
+							class="h-8 w-8 text-white drop-shadow-lg"
+						>
+							<path
+								fill-rule="evenodd"
+								d="M4.5 5.653c0-1.426 1.529-2.33 2.779-1.643l11.54 6.348c1.295.712 1.295 2.573 0 3.285L7.28 19.991c-1.25.687-2.779-.217-2.779-1.643V5.653Z"
+								clip-rule="evenodd"
+							/>
+						</svg>
+					</div>
+				{/if}
 			{:else}
 				<svg
 					xmlns="http://www.w3.org/2000/svg"
@@ -138,9 +148,17 @@
 					fill="currentColor"
 					class="h-16 w-16 text-gray-400 transition-colors group-hover:text-white"
 				>
-					<path
-						d="M4.5 4.5a3 3 0 0 0-3 3v9a3 3 0 0 0 3 3h8.25a3 3 0 0 0 3-3v-9a3 3 0 0 0-3-3H4.5ZM19.94 18.75l-2.69-2.69V7.94l2.69-2.69c.944-.945 2.56-.276 2.56 1.06v11.38c0 1.336-1.616 2.005-2.56 1.06Z"
-					/>
+					{#if asset.type === 'image'}
+						<path
+							fill-rule="evenodd"
+							d="M1.5 6a2.25 2.25 0 0 1 2.25-2.25h16.5A2.25 2.25 0 0 1 22.5 6v12a2.25 2.25 0 0 1-2.25 2.25H3.75A2.25 2.25 0 0 1 1.5 18V6ZM3 16.06V18c0 .414.336.75.75.75h16.5A.75.75 0 0 0 21 18v-1.94l-2.69-2.689a1.5 1.5 0 0 0-2.12 0l-.88.879.97.97a.75.75 0 1 1-1.06 1.061l-5.16-5.159a1.5 1.5 0 0 0-2.12 0L3 16.061Zm10.125-7.81a1.125 1.125 0 1 1 2.25 0 1.125 1.125 0 0 1-2.25 0Z"
+							clip-rule="evenodd"
+						/>
+					{:else}
+						<path
+							d="M4.5 4.5a3 3 0 0 0-3 3v9a3 3 0 0 0 3 3h8.25a3 3 0 0 0 3-3v-9a3 3 0 0 0-3-3H4.5ZM19.94 18.75l-2.69-2.69V7.94l2.69-2.69c.944-.945 2.56-.276 2.56 1.06v11.38c0 1.336-1.616 2.005-2.56 1.06Z"
+						/>
+					{/if}
 				</svg>
 			{/if}
 			{#if asset.duration}
@@ -148,6 +166,26 @@
 					class="absolute right-1 bottom-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white"
 				>
 					{asset.duration}
+				</div>
+			{/if}
+			<!-- Lock Icon for locked assets -->
+			{#if asset.status === 'locked'}
+				<div
+					class="absolute right-1 top-1 flex items-center justify-center rounded-full bg-yellow-500/90 p-1.5"
+					title="Locked - in use"
+				>
+					<svg
+						xmlns="http://www.w3.org/2000/svg"
+						viewBox="0 0 24 24"
+						fill="currentColor"
+						class="h-3 w-3 text-black"
+					>
+						<path
+							fill-rule="evenodd"
+							d="M12 1.5a5.25 5.25 0 0 0-5.25 5.25v3a3 3 0 0 0-3 3v6.75a3 3 0 0 0 3 3h10.5a3 3 0 0 0 3-3v-6.75a3 3 0 0 0-3-3v-3c0-2.9-2.35-5.25-5.25-5.25Zm3.75 8.25v-3a3.75 3.75 0 1 0-7.5 0v3h7.5Z"
+							clip-rule="evenodd"
+						/>
+					</svg>
 				</div>
 			{/if}
 		{/if}

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 
-	let { x, y, onRename, onDelete, onCopy, onCut, onPaste, canPaste, hasSelection, onClose } =
+	let { x, y, onRename, onDelete, onCopy, onCut, onPaste, canPaste, hasSelection, canCopy = true, onClose } =
 		$props<{
 			x: number;
 			y: number;
@@ -12,6 +12,7 @@
 			onPaste: () => void;
 			canPaste: boolean;
 			hasSelection: boolean;
+			canCopy?: boolean; // Copy is always allowed, even for locked items
 			onClose: () => void;
 		}>();
 
@@ -43,9 +44,9 @@
 	<ul class="py-1 text-sm text-gray-300">
 		<li
 			class="cursor-pointer px-4 py-2 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-			class:opacity-50={!hasSelection}
+			class:opacity-50={!canCopy}
 			onclick={() => {
-				if (hasSelection) {
+				if (canCopy) {
 					onCopy();
 					onClose();
 				}
