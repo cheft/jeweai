@@ -299,6 +299,7 @@
 
 	function handleBreadcrumbDrop(e: DragEvent, targetId: string | null) {
 		e.preventDefault();
+		dragOverBreadcrumbId = null;
 		const data = e.dataTransfer?.getData('application/json');
 		if (data) {
 			try {
