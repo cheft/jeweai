@@ -357,6 +357,37 @@ export const update = os
       throw new ORPCError('FORBIDDEN', { message: 'Cannot modify locked asset' });
     }
 
+    // Determine target folder (use new folderId if provided, otherwise keep current)
+    const targetFolderId = input.folderId !== undefined ? input.folderId : asset.folderId;
+    const targetName = input.name !== undefined ? input.name : asset.name;
+
+    // Check for name conflict in the target directory (only if name or folderId is changing)
+    if (input.name !== undefined || input.folderId !== undefined) {
+      // Only check if name actually changed
+      if (targetName !== asset.name || targetFolderId !== asset.folderId) {
+        const folderCondition = targetFolderId === null 
+          ? isNull(assets.folderId)
+          : eq(assets.folderId, targetFolderId);
+
+        // Check for conflicts, excluding current asset
+        const conflictCheck = await db.select()
+          .from(assets)
+          .where(
+            and(
+              eq(assets.userId, userId),
+              folderCondition,
+              eq(assets.name, targetName)
+            )
+          );
+
+        // Filter out current asset manually
+        const conflicts = conflictCheck.filter(a => a.id !== input.id);
+        if (conflicts.length > 0) {
+          throw new ORPCError('BAD_REQUEST', { message: 'An asset with this name already exists in this directory' });
+        }
+      }
+    }
+
     const updateData: any = {
       updatedAt: new Date(),
     };
@@ -449,12 +480,25 @@ export const copy = os
 
     console.log(`[Asset Copy] Final paths - path: ${newPath}, coverPath: ${newCoverPath}`);
 
+    // Generate new name with "copy" before file extension
+    let newName = sourceAsset.name || 'asset';
+    const lastDotIndex = newName.lastIndexOf('.');
+    if (lastDotIndex > 0) {
+      // Has extension: insert " copy" before the extension
+      const nameWithoutExt = newName.substring(0, lastDotIndex);
+      const ext = newName.substring(lastDotIndex);
+      newName = `${nameWithoutExt} copy${ext}`;
+    } else {
+      // No extension: append " copy"
+      newName = `${newName} copy`;
+    }
+
     // Create new asset record
     const [newAsset] = await db.insert(assets).values({
       id: newId,
       userId,
       folderId: newFolderId,
-      name: `${sourceAsset.name} copy`,
+      name: newName,
       type: sourceAsset.type,
       source: sourceAsset.source,
       fromAssetId: sourceAsset.fromAssetId,
@@ -522,11 +566,32 @@ export const createFolder = os
     const { db } = context;
     const userId = 'userid123456'; // TODO: auth
 
+    // Check for name conflict in the same directory
+    const parentId = input.parentId || null;
+    const parentCondition = parentId === null 
+      ? isNull(folders.parentId)
+      : eq(folders.parentId, parentId);
+
+    const existingFolders = await db.select()
+      .from(folders)
+      .where(
+        and(
+          eq(folders.userId, userId),
+          parentCondition,
+          eq(folders.name, input.name)
+        )
+      )
+      .limit(1);
+
+    if (existingFolders.length > 0) {
+      throw new ORPCError('BAD_REQUEST', { message: 'A folder with this name already exists in this directory' });
+    }
+
     const [newFolder] = await db.insert(folders).values({
       id: nanoid(),
       userId,
       name: input.name,
-      parentId: input.parentId || null,
+      parentId: parentId,
       createdAt: new Date(),
       updatedAt: new Date(),
     }).returning();
@@ -554,6 +619,37 @@ export const updateFolder = os
 
     if (!folder) {
       throw new ORPCError('NOT_FOUND', { message: 'Folder not found' });
+    }
+
+    // Determine target parent (use new parentId if provided, otherwise keep current)
+    const targetParentId = input.parentId !== undefined ? input.parentId : folder.parentId;
+    const targetName = input.name !== undefined ? input.name : folder.name;
+
+    // Check for name conflict in the target directory (only if name or parentId is changing)
+    if (input.name !== undefined || input.parentId !== undefined) {
+      // Only check if name actually changed
+      if (targetName !== folder.name || targetParentId !== folder.parentId) {
+        const parentCondition = targetParentId === null 
+          ? isNull(folders.parentId)
+          : eq(folders.parentId, targetParentId);
+
+        // Check for conflicts, excluding current folder
+        const conflictCheck = await db.select()
+          .from(folders)
+          .where(
+            and(
+              eq(folders.userId, userId),
+              parentCondition,
+              eq(folders.name, targetName)
+            )
+          );
+
+        // Filter out current folder manually
+        const conflicts = conflictCheck.filter(f => f.id !== input.id);
+        if (conflicts.length > 0) {
+          throw new ORPCError('BAD_REQUEST', { message: 'A folder with this name already exists in this directory' });
+        }
+      }
     }
 
     // Prevent circular reference

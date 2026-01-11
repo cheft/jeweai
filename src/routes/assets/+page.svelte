@@ -204,6 +204,20 @@
 		clipboard = { op: 'cut', items: itemsToCut };
 	}
 
+	// Helper function to add "copy" before file extension
+	function addCopySuffix(name: string): string {
+		const lastDotIndex = name.lastIndexOf('.');
+		if (lastDotIndex > 0) {
+			// Has extension: insert " copy" before the extension
+			const nameWithoutExt = name.substring(0, lastDotIndex);
+			const ext = name.substring(lastDotIndex);
+			return `${nameWithoutExt} copy${ext}`;
+		} else {
+			// No extension (like folders): append " copy"
+			return `${name} copy`;
+		}
+	}
+
 	async function handlePaste() {
 		if (!clipboard) return;
 
@@ -214,15 +228,15 @@
 			try {
 				for (const item of clipboard.items) {
 					if (item.type === 'folder') {
-						// For folders, create new folder and recursively copy contents
-						// This is simplified - full recursive copy would need more logic
+						// For folders, create new folder with copy suffix
+						const newFolderName = addCopySuffix(item.name);
 						const newFolder = await client.assets.createFolder({
-							name: `${item.name} copy`,
+							name: newFolderName,
 							parentId: currentFolderId
 						});
 						// TODO: Recursively copy folder contents
 					} else {
-						// Copy asset (including R2 files)
+						// Copy asset (including R2 files) - server handles the name correctly
 						await client.assets.copy({
 							id: item.id,
 							folderId: currentFolderId
