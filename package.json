@@ -49,6 +49,7 @@
 		"drizzle-kit": "^0.31.8",
 		"drizzle-orm": "^0.41.0",
 		"ioredis": "^5.9.1",
+		"jszip": "^3.10.1",
 		"lucide-svelte": "^0.554.0",
 		"nanoid": "^5.1.6",
 		"openai": "^6.15.0",

@@ -3,6 +3,8 @@
 	import { client } from '$lib/orpc';
 	import { slide, fly, fade, scale } from 'svelte/transition';
 	import { cubicOut, backOut, quintOut } from 'svelte/easing';
+	import { page } from '$app/stores';
+	import { onMount } from 'svelte';
 	import galleryRing from '$lib/assets/gallery-ring.png';
 	import galleryNecklace from '$lib/assets/gallery-necklace.png';
 	import galleryEarrings from '$lib/assets/gallery-earrings.png';
@@ -16,28 +18,55 @@
 	let isStyleSelectorOpen = false;
 	let isImageOnly = false;
 	let uploadedImage: string | null = null;
+	let referenceAssetId: string | null = null;
 	let fileInput: HTMLInputElement;
 	let selectedStyle: { id: string; name: string; thumbnail: any } | null = null;
 	let isGenerating = false;
 	let orientation: 'landscape' | 'portrait' = 'portrait';
 	let isOrientationOpen = false;
 
+	// Check URL params for assetId
+	onMount(() => {
+		const assetId = $page.url.searchParams.get('assetId');
+		if (assetId) {
+			referenceAssetId = assetId;
+			loadReferenceAsset(assetId);
+		}
+	});
+
+	async function loadReferenceAsset(assetId: string) {
+		try {
+			const asset = await client.assets.get({ id: assetId });
+			if (asset.originalImageUrl) {
+				uploadedImage = asset.originalImageUrl;
+			}
+		} catch (err) {
+			console.error('Failed to load reference asset:', err);
+		}
+	}
+
 	async function handleGenerate() {
-		if (!prompt.trim() && !uploadedImage) {
+		if (!prompt.trim() && !uploadedImage && !referenceAssetId) {
 			alert('请输入提示词或上传参考图片');
 			return;
 		}
 
 		isGenerating = true;
 		try {
-			const payload = {
-				image: uploadedImage || undefined,
+			const payload: any = {
 				prompt,
 				styleId: selectedStyle?.id,
 				isImageOnly,
-				filename: 'reference_image.png',
 				orientation
 			};
+
+			// If we have referenceAssetId, use it; otherwise use uploaded image
+			if (referenceAssetId) {
+				payload.assetId = referenceAssetId;
+			} else if (uploadedImage) {
+				payload.image = uploadedImage;
+				payload.filename = 'reference_image.png';
+			}
 
 			const res = await client.task.create(payload);
 
@@ -277,26 +306,28 @@
 								<img src={uploadedImage} alt="Uploaded" class="h-full w-full object-cover" />
 							</div>
 							<span class="font-medium text-white">参考图片</span>
-							<button
-								class="flex h-6 w-6 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-white/10 hover:text-white"
-								on:click={() => {
-									uploadedImage = null;
-									if (fileInput) fileInput.value = '';
-								}}
-							>
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									width="16"
-									height="16"
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									stroke-width="2.5"
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									class="lucide lucide-x"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg
+							{#if !referenceAssetId}
+								<button
+									class="flex h-6 w-6 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-white/10 hover:text-white"
+									on:click={() => {
+										uploadedImage = null;
+										if (fileInput) fileInput.value = '';
+									}}
 								>
-							</button>
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										width="16"
+										height="16"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2.5"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										class="lucide lucide-x"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg
+									>
+								</button>
+							{/if}
 						</div>
 					{/if}
 
@@ -348,14 +379,16 @@
 				<div class="flex items-center justify-between px-4">
 					<div class="flex items-center space-x-6 text-gray-400">
 						<label
-							class="group relative cursor-pointer transition-all duration-300 hover:scale-110 hover:text-white"
+							class="group relative cursor-pointer transition-all duration-300 hover:scale-110 hover:text-white {referenceAssetId ? 'opacity-50 cursor-not-allowed' : ''}"
 						>
 							<input
 								bind:this={fileInput}
 								type="file"
 								class="hidden"
 								accept="image/*"
+								disabled={!!referenceAssetId}
 								on:change={(e) => {
+									if (referenceAssetId) return;
 									const file = e.currentTarget.files?.[0];
 									if (file) {
 										const reader = new FileReader();

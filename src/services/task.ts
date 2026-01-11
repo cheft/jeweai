@@ -2,6 +2,7 @@ import { os, ORPCError } from '@orpc/server';
 import { z } from 'zod';
 import { tasks, assets } from '@/drizzle/schema';
 import { nanoid } from 'nanoid';
+import { eq, and } from 'drizzle-orm';
 import {
   CLOUDFLARE_ACCOUNT_ID,
   CLOUDFLARE_R2_TOKEN,
@@ -50,6 +51,7 @@ export const create = os
   .input(
     z.object({
       image: z.string().optional(),
+      assetId: z.string().optional(), // Reference asset ID from existing asset
       prompt: z.string(),
       styleId: z.string().optional(),
       isImageOnly: z.boolean().default(false),
@@ -69,7 +71,24 @@ export const create = os
       let imageKey = '';
       let assetId = '';
 
-      if (input.image) {
+      // If assetId is provided, use existing asset
+      if (input.assetId) {
+        const [existingAsset] = await db.select()
+          .from(assets)
+          .where(and(eq(assets.id, input.assetId), eq(assets.userId, userId)))
+          .limit(1);
+        
+        if (!existingAsset) {
+          throw new ORPCError('NOT_FOUND', { message: 'Reference asset not found' });
+        }
+        
+        if (existingAsset.type !== 'image') {
+          throw new ORPCError('BAD_REQUEST', { message: 'Reference asset must be an image' });
+        }
+        
+        assetId = existingAsset.id;
+        imageKey = existingAsset.path || '';
+      } else if (input.image) {
         // 1. Process and Upload image to R2 (Private Bucket 'jeweai')
         const base64Data = input.image.replace(/^data:image\/\w+;base64,/, "");
         const imageBuffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));

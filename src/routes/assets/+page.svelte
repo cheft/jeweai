@@ -6,6 +6,8 @@
 	import type { Asset } from '$lib/types/assets';
 	import { onMount } from 'svelte';
 	import { client } from '$lib/orpc';
+	import { goto } from '$app/navigation';
+	import JSZip from 'jszip';
 
 	// State
 	let assets = $state<Asset[]>([]);
@@ -394,12 +396,42 @@
 		}
 	}
 
+	function handleDownload() {
+		if (selectedIds.length === 0) return;
+		const itemsToDownload = [...assets, ...folders].filter((a) => selectedIds.includes(a.id));
+		for (const item of itemsToDownload) {
+			if (item.type === 'folder') {
+			// window.open(item.url, '_blank');
+			}
+		}
+	}
+
+	function handleAIGenerate() {
+		if (selectedIds.length === 0) return;
+		const itemsToGenerate = [...assets, ...folders].filter((a) => selectedIds.includes(a.id));
+		for (const item of itemsToGenerate) {
+			if (item.type === 'folder') {
+			// window.open(item.url, '_blank');
+			}
+		}
+	}
+
+
 	// Check if any selected item is locked
 	let hasLockedSelection = $derived(
 		selectedIds.some((id) => {
 			const item = [...assets, ...folders].find((a) => a.id === id);
 			return item?.status === 'locked';
 		})
+	);
+
+	// Check if exactly one image is selected
+	let hasSingleImage = $derived(
+		selectedIds.length === 1 &&
+		(() => {
+			const item = [...assets, ...folders].find((a) => a.id === selectedIds[0]);
+			return item?.type === 'image';
+		})()
 	);
 </script>
 
@@ -456,11 +488,14 @@
 		<FileToolbar
 			canPaste={!!clipboard}
 			hasSelection={selectedIds.length > 0 && !hasLockedSelection}
+			hasSingleImage={hasSingleImage}
 			onCreateFolder={handleCreateFolder}
 			onCopy={handleCopy}
 			onCut={handleCut}
 			onPaste={handlePaste}
 			onDelete={handleDelete}
+			onDownload={handleDownload}
+			onAIGenerate={handleAIGenerate}
 			onRename={() => {
 				if (selectedIds.length === 1 && !hasLockedSelection) {
 					const item = [...assets, ...folders].find((a) => a.id === selectedIds[0]);

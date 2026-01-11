@@ -1,15 +1,29 @@
 <script lang="ts">
-	let { canPaste, hasSelection, onCreateFolder, onCopy, onCut, onPaste, onDelete, onRename } =
-		$props<{
-			canPaste: boolean;
-			hasSelection: boolean;
-			onCreateFolder: () => void;
-			onCopy: () => void;
-			onCut: () => void;
-			onPaste: () => void;
-			onDelete: () => void;
-			onRename: () => void;
-		}>();
+	let { 
+		canPaste, 
+		hasSelection, 
+		hasSingleImage,
+		onCreateFolder, 
+		onCopy, 
+		onCut, 
+		onPaste, 
+		onDelete, 
+		onRename,
+		onDownload,
+		onAIGenerate
+	} = $props<{
+		canPaste: boolean;
+		hasSelection: boolean;
+		hasSingleImage: boolean;
+		onCreateFolder: () => void;
+		onCopy: () => void;
+		onCut: () => void;
+		onPaste: () => void;
+		onDelete: () => void;
+		onRename: () => void;
+		onDownload: () => void;
+		onAIGenerate: () => void;
+	}>();
 </script>
 
 <div
@@ -116,6 +130,7 @@
 		<span>Rename</span>
 	</button>
 
+
 	<button
 		class="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-50 disabled:hover:bg-transparent"
 		onclick={onDelete}
@@ -131,4 +146,37 @@
 		</svg>
 		<span>Delete</span>
 	</button>
+
+	<div class="mx-2 h-6 w-px bg-white/10"></div>
+
+	<button
+		class="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-gray-300 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-50 disabled:hover:bg-transparent"
+		onclick={onDownload}
+		disabled={!hasSelection}
+		title="Download"
+	>
+		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-5 w-5">
+			<path
+				fill-rule="evenodd"
+				d="M12 2.25a.75.75 0 0 1 .75.75v11.69l3.22-3.22a.75.75 0 1 1 1.06 1.06l-4.5 4.5a.75.75 0 0 1-1.06 0l-4.5-4.5a.75.75 0 1 1 1.06-1.06l3.22 3.22V3a.75.75 0 0 1 .75-.75ZM6.75 15a.75.75 0 0 0-1.5 0v4.5c0 .414.336.75.75.75h13.5a.75.75 0 0 0 .75-.75V15a.75.75 0 0 0-1.5 0v3.75H6.75V15Z"
+				clip-rule="evenodd"
+			/>
+		</svg>
+		<span>Download</span>
+	</button>
+
+	<button
+		class="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-seko-accent transition-colors hover:bg-seko-accent/10 hover:text-seko-accent disabled:opacity-50 disabled:hover:bg-transparent"
+		onclick={onAIGenerate}
+		disabled={!hasSingleImage}
+		title="Generate with AI"
+	>
+		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-5 w-5">
+			<path
+				d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z"
+			/>
+		</svg>
+		<span>AI Generate</span>
+	</button>
+
 </div>
