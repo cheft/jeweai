@@ -31,6 +31,7 @@
 	let isDragOver = $state(false);
 	let renameInputRef: HTMLInputElement;
 	let isRenamingInProgress = $state(false);
+	let shouldSubmitOnBlur = $state(true); // Flag to control blur submission
 
 	function handleDragOver(e: DragEvent) {
 		e.preventDefault();
@@ -60,14 +61,17 @@
 		if (e.key === 'Enter') {
 			e.preventDefault();
 			isRenamingInProgress = true;
-			// 使用setTimeout确保blur事件不会立即触发
+			shouldSubmitOnBlur = false; // Prevent blur from triggering another submission
+			// Use setTimeout to ensure blur event doesn't interfere
 			setTimeout(() => {
 				onRenameSubmit?.(renameInputRef.value).finally(() => {
 					isRenamingInProgress = false;
+					shouldSubmitOnBlur = true; // Reset flag after submission
 				});
 			}, 0);
 		} else if (e.key === 'Escape') {
 			e.preventDefault();
+			shouldSubmitOnBlur = false; // Prevent blur from triggering submission
 			onRenameCancel?.();
 		}
 	}
@@ -218,10 +222,12 @@
 				onkeydown={handleKeyDown}
 				onclick={(e) => e.stopPropagation()}
 				onblur={() => {
-					if (isRenamingInProgress) return;
+					if (isRenamingInProgress || !shouldSubmitOnBlur) return;
 					isRenamingInProgress = true;
+					shouldSubmitOnBlur = false; // Prevent duplicate submissions
 					onRenameSubmit?.(renameInputRef.value).finally(() => {
 						isRenamingInProgress = false;
+						shouldSubmitOnBlur = true; // Reset flag after submission
 					});
 				}}
 			/>

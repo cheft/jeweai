@@ -14,6 +14,8 @@
 	let currentFolderId = $state<string | null>(null);
 	let selectedIds = $state<string[]>([]);
 	let renamingId = $state<string | null>(null);
+	let renamingOriginalName = $state<string>(''); // Store original name for cancel
+	let isRenamingInProgress = $state(false); // Prevent duplicate submissions
 	let clipboard = $state<{ op: 'copy' | 'cut'; items: Asset[] } | null>(null);
 	let contextMenu = $state<{ x: number; y: number } | null>(null);
 	let detailModalAssetId = $state<string | null>(null);
@@ -88,6 +90,7 @@
 		currentFolderId = folderId;
 		selectedIds = [];
 		renamingId = null;
+		renamingOriginalName = '';
 		contextMenu = null;
 		await buildPath(folderId);
 		await loadAssets();
@@ -113,6 +116,7 @@
 			
 			selectedIds = [result.id];
 			renamingId = result.id;
+			renamingOriginalName = 'New Folder';
 		} catch (err: any) {
 			console.error('Failed to create folder:', err);
 			alert('Failed to create folder: ' + (err.message || 'Unknown error'));
@@ -120,16 +124,32 @@
 	}
 
 	async function handleRenameSubmit(id: string, newName: string) {
-		if (!newName.trim()) return;
+		// Prevent duplicate submissions
+		if (isRenamingInProgress) return;
+		
+		if (!newName.trim()) {
+			// If empty, cancel rename
+			handleRenameCancel();
+			return;
+		}
 		
 		// Check if locked
 		const item = assets.find((a) => a.id === id) || folders.find((a) => a.id === id);
 		if (item && item.status === 'locked') {
 			alert('Cannot rename locked assets');
 			renamingId = null;
+			renamingOriginalName = '';
 			return;
 		}
 
+		// Check if name actually changed
+		if (newName.trim() === renamingOriginalName) {
+			// No change, just cancel
+			handleRenameCancel();
+			return;
+		}
+
+		isRenamingInProgress = true;
 		isLoading = true;
 		try {
 			if (item?.type === 'folder') {
@@ -142,12 +162,17 @@
 			console.error('Failed to rename:', err);
 			alert('Failed to rename: ' + (err.message || 'Unknown error'));
 			isLoading = false;
+		} finally {
+			isRenamingInProgress = false;
+			renamingId = null;
+			renamingOriginalName = '';
 		}
-		renamingId = null;
 	}
 
 	function handleRenameCancel() {
 		renamingId = null;
+		renamingOriginalName = '';
+		isRenamingInProgress = false;
 	}
 
 	async function handleDelete() {
@@ -437,7 +462,13 @@
 			onPaste={handlePaste}
 			onDelete={handleDelete}
 			onRename={() => {
-				if (selectedIds.length === 1 && !hasLockedSelection) renamingId = selectedIds[0];
+				if (selectedIds.length === 1 && !hasLockedSelection) {
+					const item = [...assets, ...folders].find((a) => a.id === selectedIds[0]);
+					if (item) {
+						renamingId = selectedIds[0];
+						renamingOriginalName = item.name || '';
+					}
+				}
 			}}
 		/>
 
@@ -477,7 +508,13 @@
 			y={contextMenu.y}
 			onClose={() => (contextMenu = null)}
 			onRename={() => {
-				if (selectedIds.length === 1 && !isLocked) renamingId = selectedIds[0];
+				if (selectedIds.length === 1 && !isLocked) {
+					const item = [...assets, ...folders].find((a) => a.id === selectedIds[0]);
+					if (item) {
+						renamingId = selectedIds[0];
+						renamingOriginalName = item.name || '';
+					}
+				}
 			}}
 			onDelete={handleDelete}
 			onCopy={handleCopy}
