@@ -154,8 +154,13 @@
 			// If dragging an item that is NOT in the selection, select it solely
 			let dragIds = selectedIds;
 			if (!selectedIds.includes(asset.id)) {
-				dragIds = [asset.id];
-				onSelect(dragIds);
+				if (e.ctrlKey || e.metaKey) {
+					dragIds = [...selectedIds, asset.id];
+					onSelect(dragIds);
+				} else {
+					dragIds = [asset.id];
+					onSelect(dragIds);
+				}
 			}
 
 			e.dataTransfer.setData('application/json', JSON.stringify(dragIds));

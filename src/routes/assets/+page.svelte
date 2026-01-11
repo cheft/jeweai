@@ -150,6 +150,7 @@
 
 		if (!confirm(`Delete ${selectedIds.length} item(s)? This will also delete all contents if deleting folders.`)) return;
 
+		isLoading = true;
 		try {
 			for (const id of selectedIds) {
 				const item = assets.find((a) => a.id === id) || folders.find((a) => a.id === id);
@@ -166,6 +167,7 @@
 		} catch (err: any) {
 			console.error('Failed to delete:', err);
 			alert('Failed to delete: ' + (err.message || 'Unknown error'));
+			isLoading = false;
 		}
 	}
 
@@ -192,6 +194,8 @@
 	async function handlePaste() {
 		if (!clipboard) return;
 
+		isLoading = true;
+
 		if (clipboard.op === 'copy') {
 			// Copy operation - create duplicates
 			try {
@@ -216,6 +220,7 @@
 			} catch (err: any) {
 				console.error('Failed to copy:', err);
 				alert('Failed to copy: ' + (err.message || 'Unknown error'));
+				isLoading = false;
 			}
 		} else if (clipboard.op === 'cut') {
 			// Move operation
@@ -238,6 +243,7 @@
 			} catch (err: any) {
 				console.error('Failed to move:', err);
 				alert('Failed to move: ' + (err.message || 'Unknown error'));
+				isLoading = false;
 			}
 		}
 	}
@@ -272,6 +278,8 @@
 			if (isCircular) return;
 		}
 
+		isLoading = true;
+
 		try {
 			for (const id of draggedIds) {
 				const item = assets.find((a) => a.id === id) || folders.find((a) => a.id === id);
@@ -294,6 +302,7 @@
 		} catch (err: any) {
 			console.error('Failed to move:', err);
 			alert('Failed to move: ' + (err.message || 'Unknown error'));
+			isLoading = false;
 		}
 	}
 
