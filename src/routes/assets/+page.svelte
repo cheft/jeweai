@@ -99,7 +99,18 @@
 				name: 'New Folder',
 				parentId: currentFolderId 
 			});
-			await loadAssets();
+			// Update local state instead of full reload to avoid loading spinner
+			const newFolder: Asset = {
+				id: result.id,
+				parentId: result.parentId,
+				folderId: result.parentId,
+				name: result.name,
+				type: 'folder',
+				createdAt: result.createdAt,
+				updatedAt: result.updatedAt,
+			};
+			folders = [...folders, newFolder];
+			
 			selectedIds = [result.id];
 			renamingId = result.id;
 		} catch (err: any) {
@@ -119,6 +130,7 @@
 			return;
 		}
 
+		isLoading = true;
 		try {
 			if (item?.type === 'folder') {
 				await client.assets.updateFolder({ id, name: newName.trim() });
@@ -129,6 +141,7 @@
 		} catch (err: any) {
 			console.error('Failed to rename:', err);
 			alert('Failed to rename: ' + (err.message || 'Unknown error'));
+			isLoading = false;
 		}
 		renamingId = null;
 	}
