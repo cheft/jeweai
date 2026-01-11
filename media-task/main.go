@@ -117,6 +117,7 @@ func main() {
 		if bucketName == "" {
 			bucketName = "covers" // Default or placeholder
 		}
+		// Fixed user ID: userid123456
 		objectKey := fmt.Sprintf("userid123456/%d_sync_test.jpg", time.Now().Unix())
 
 		err := uploadToR2(ctx, filePath, bucketName, objectKey)

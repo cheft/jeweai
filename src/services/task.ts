@@ -59,7 +59,7 @@ export const create = os
   )
   .handler(async ({ input, context }: { input: any, context: any }) => {
     const { db } = context;
-    const userId = 'user_123456'; // TODO: Get from auth context
+    const userId = 'userid123456'; // TODO: Get from auth context
 
     // Compute dimensions based on orientation
     const width = input.orientation === 'portrait' ? 720 : 1280;
@@ -165,7 +165,7 @@ import { alias } from 'drizzle-orm/sqlite-core';
 export const list = os
   .handler(async ({ context }: { context: any }) => {
     const { db } = context;
-    const userId = 'user_123456'; // TODO: auth
+    const userId = 'userid123456'; // TODO: auth
 
     const refAssets = alias(assets, 'ref');
     const resAssets = alias(assets, 'res');
@@ -204,7 +204,7 @@ export const get = os
   .input(z.object({ id: z.string() }))
   .handler(async ({ input, context }: { input: { id: string }, context: any }) => {
     const { db } = context;
-    const userId = 'user_123456'; // TODO: auth
+    const userId = 'userid123456'; // TODO: auth
 
     const refAssets = alias(assets, 'ref');
     const resAssets = alias(assets, 'res');

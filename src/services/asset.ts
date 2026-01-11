@@ -10,7 +10,7 @@ export const get = os
   .input(z.object({ id: z.string() }))
   .handler(async ({ input, context }: { input: { id: string }, context: any }) => {
     const { db } = context;
-    const userId = 'user_123456'; // TODO: auth
+    const userId = 'userid123456'; // TODO: auth
 
     // Fetch asset by ID
     const [asset] = await db.select()

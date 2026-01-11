@@ -170,22 +170,17 @@ func HandleVideoGenerateTask(ctx context.Context, t *asynq.Task) error {
 	coverKey := ""
 	if err == nil {
 		// Upload Cover to public bucket 'covers'
-		// Path: users/{userID}/covers/{videoID}_ref.png?
-		// Or keep simple: covers/reference/...
-		// User said: "thumb stored in covers bucket... public... and placed in corresponding user directory"
-		// "all image covers... in covers bucket userid123456..."
+		// Path format: userid123456/{taskID}_720p.png
+		// All image covers stored in covers bucket under userid123456/ directory
 
 		coversBucket := os.Getenv("R2_PUBLIC_BUCKET")
 		if coversBucket == "" {
 			coversBucket = "covers"
 		}
 
-		safeUserID := p.UserID
-		if safeUserID == "" {
-			safeUserID = "unknown"
-		}
-
-		coverKey = fmt.Sprintf("users/%s/assets/%s_720p.png", safeUserID, p.TaskID)
+		// Fixed user ID: userid123456
+		// Cover stored in covers bucket under userid123456/ directory
+		coverKey = fmt.Sprintf("userid123456/%s_720p.png", p.TaskID)
 		err = uploadToR2(ctx, localCoverPath, coversBucket, coverKey)
 		if err != nil {
 			fmt.Printf("[VIDEO] Upload cover warning: %v\n", err)
@@ -417,15 +412,11 @@ func HandleVideoCheckStatusTask(ctx context.Context, t *asynq.Task) error {
 		defer os.Remove(thumbPath)
 
 		// Storage Logic
-		// Video -> Jeweai (Private)
-		// Thumb -> Covers (Public)
-		// User Path: users/{userID}/videos/...
+		// Video -> Jeweai (Private): userid123456/{videoID}.mp4
+		// Thumb -> Covers (Public): userid123456/{videoID}_thumb.png
 
-		safeUserID := p.UserID
-		if safeUserID == "" {
-			safeUserID = "unknown"
-		}
-
+		// Fixed user ID: userid123456
+		// Video stored in jeweai bucket (private), thumbnail in covers bucket (public)
 		jeweaiBucket := os.Getenv("R2_BUCKET")
 		if jeweaiBucket == "" {
 			jeweaiBucket = "jeweai"
@@ -436,8 +427,10 @@ func HandleVideoCheckStatusTask(ctx context.Context, t *asynq.Task) error {
 			coversBucket = "covers"
 		}
 
-		videoKey := fmt.Sprintf("users/%s/videos/%s.mp4", safeUserID, p.VideoID)
-		thumbKey := fmt.Sprintf("users/%s/videos/%s_thumb.png", safeUserID, p.VideoID)
+		// Video file in jeweai bucket: userid123456/{videoID}.mp4
+		videoKey := fmt.Sprintf("userid123456/%s.mp4", p.VideoID)
+		// Thumbnail in covers bucket: userid123456/{videoID}_thumb.png
+		thumbKey := fmt.Sprintf("userid123456/%s_thumb.png", p.VideoID)
 
 		// NOTE: uploadToR2 is from main.go
 		// Upload Video (Private)
