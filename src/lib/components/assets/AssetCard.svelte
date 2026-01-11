@@ -27,12 +27,16 @@
 		onRenameCancel?: () => void;
 	}>();
 
+	let isDragging = $state(false);
 	let isDragOver = $state(false);
 	let renameInputRef: HTMLInputElement;
 
 	function handleDragOver(e: DragEvent) {
 		e.preventDefault();
 		if (asset.type === 'folder') {
+			if (e.dataTransfer) {
+				e.dataTransfer.dropEffect = 'move';
+			}
 			isDragOver = true;
 			ondragover?.(e);
 		}
@@ -80,7 +84,12 @@
 			e.preventDefault();
 			return;
 		}
+		isDragging = true;
 		ondragstart?.(e);
+	}
+
+	function handleDragEnd() {
+		isDragging = false;
 	}
 </script>
 
@@ -89,12 +98,14 @@
 <div
 	class="group relative flex flex-col items-center gap-2 rounded-xl p-4 transition-all duration-200
     {selected ? 'bg-seko-accent/20 ring-2 ring-seko-accent' : 'hover:bg-white/5'}
-    {isDragOver ? 'scale-105 bg-white/10 ring-2 ring-seko-accent' : ''}"
+    {isDragOver ? 'scale-105 bg-white/10 ring-2 ring-seko-accent' : ''}
+	{isDragging ? 'opacity-20' : ''}"
 	onclick={handleClick}
 	{ondblclick}
 	{oncontextmenu}
 	draggable={!renaming && asset.status !== 'locked'}
 	ondragstart={handleDragStart}
+	ondragend={handleDragEnd}
 	ondragover={handleDragOver}
 	ondragleave={handleDragLeave}
 	ondrop={handleDrop}

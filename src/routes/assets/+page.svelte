@@ -17,6 +17,7 @@
 	let clipboard = $state<{ op: 'copy' | 'cut'; items: Asset[] } | null>(null);
 	let contextMenu = $state<{ x: number; y: number } | null>(null);
 	let detailModalAssetId = $state<string | null>(null);
+	let dragOverBreadcrumbId = $state<string | null>(null);
 
 	// Derived
 	let visibleAssets = $derived(
@@ -351,9 +352,17 @@
 				<div class="flex items-center gap-2 text-sm text-gray-400">
 					<!-- Home Breadcrumb -->
 					<button
-						class="rounded px-2 py-1 transition-colors hover:bg-white/10 hover:text-seko-accent"
+						class="rounded px-2 py-1 transition-all duration-200 hover:bg-white/10 hover:text-seko-accent {dragOverBreadcrumbId ===
+						'root'
+							? 'scale-110 bg-seko-accent text-black shadow-[0_0_15px_rgba(163,230,53,0.5)] ring-2 ring-white/50'
+							: ''}"
 						onclick={() => handleNavigate(null)}
-						ondragover={(e) => e.preventDefault()}
+						ondragover={(e) => {
+							e.preventDefault();
+							if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+							dragOverBreadcrumbId = 'root';
+						}}
+						ondragleave={() => (dragOverBreadcrumbId = null)}
 						ondrop={(e) => handleBreadcrumbDrop(e, null)}
 					>
 						Home
@@ -361,9 +370,17 @@
 					{#each currentPath as folder}
 						<span class="text-gray-600">/</span>
 						<button
-							class="rounded px-2 py-1 transition-colors hover:bg-white/10 hover:text-seko-accent"
+							class="rounded px-2 py-1 transition-all duration-200 hover:bg-white/10 hover:text-seko-accent {dragOverBreadcrumbId ===
+							folder.id
+								? 'scale-110 bg-seko-accent text-black shadow-[0_0_15px_rgba(163,230,53,0.5)] ring-2 ring-white/50'
+								: ''}"
 							onclick={() => handleNavigate(folder.id)}
-							ondragover={(e) => e.preventDefault()}
+							ondragover={(e) => {
+								e.preventDefault();
+								if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+								dragOverBreadcrumbId = folder.id;
+							}}
+							ondragleave={() => (dragOverBreadcrumbId = null)}
 							ondrop={(e) => handleBreadcrumbDrop(e, folder.id)}
 						>
 							{folder.name}
