@@ -79,23 +79,45 @@ export const POST: RequestHandler = async ({ request }) => {
           .where(eq(tasks.id, taskId));
 
       } else if (task.type === 'image') {
-        // For image generation, update the existing asset directly (if applicable) or create new
-        // Adapting legacy logic:
-        if (task.referenceAssetId) {
-          // If image generation was updating the reference asset? 
-          // Logic suggests creating new asset for result usually.
-          // But existing code updated the "Asset".
-          // We will assume creation of new asset for consistency if needed, but sticking to legacy update for now.
-          // The prompt is "video generation flow", so image part is less critical.
-          await db.update(assets)
-            .set({
-              path: resultUrl,
-              status: 'unlocked',
-              prompt: task.prompt,
-              updatedAt: new Date(),
-            })
-            .where(eq(assets.id, task.referenceAssetId));
+        // For image generation, create a NEW asset for the generated image
+        // Go sends 'imagePath' and 'imageCoverPath'
+        const imagePath = payload.imagePath || resultUrl;
+        const imageCoverPath = payload.imageCoverPath || thumbnailUrl;
+        const imageWidth = payload.width || 1024;
+        const imageHeight = payload.height || 1024;
+
+        if (!imagePath) {
+          console.error(`[Webhook] Missing imagePath for image task ${taskId}`);
+          return json({ error: 'Missing imagePath' }, { status: 400 });
         }
+
+        const [newImageAsset] = await db.insert(assets).values({
+          id: nanoid(),
+          userId: task.userId || '',
+          name: `image_${task.id}.png`,
+          type: 'image',
+          source: 'ai',
+          path: imagePath, // Perm path in jeweai bucket (private)
+          coverPath: imageCoverPath, // Image cover path in covers bucket (public)
+          fromAssetId: task.referenceAssetId, // Link to reference image if exists
+          prompt: task.prompt,
+          width: imageWidth,
+          height: imageHeight,
+          status: 'unlocked',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }).returning();
+
+        console.log(`[Webhook] Created new image asset: ${newImageAsset.id}`);
+
+        // Update Task with resultAssetId
+        await db.update(tasks)
+          .set({
+            resultAssetId: newImageAsset.id,
+            status: 'completed',
+            updatedAt: new Date()
+          })
+          .where(eq(tasks.id, taskId));
       }
     }
 

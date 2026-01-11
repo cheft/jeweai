@@ -60,7 +60,7 @@ func main() {
 		payload.TaskID = taskID
 
 		imgPayload, _ := json.Marshal(payload)
-		taskImg := asynq.NewTask(TaskTypeImageGenerate, imgPayload, asynq.Timeout(60*time.Second), asynq.TaskID(taskID))
+		taskImg := asynq.NewTask(TaskTypeImageGenerate, imgPayload, asynq.Timeout(600*time.Second), asynq.TaskID(taskID)) // 10 minutes timeout for sync image generation
 		_, err := client.Enqueue(taskImg, asynq.Queue("media"))
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": fmt.Sprintf("Enqueue error (Image): %v", err)})

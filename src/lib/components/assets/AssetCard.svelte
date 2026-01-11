@@ -30,6 +30,7 @@
 	let isDragging = $state(false);
 	let isDragOver = $state(false);
 	let renameInputRef: HTMLInputElement;
+	let isRenamingInProgress = $state(false);
 
 	function handleDragOver(e: DragEvent) {
 		e.preventDefault();
@@ -55,9 +56,16 @@
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
+		if (isRenamingInProgress) return;
 		if (e.key === 'Enter') {
 			e.preventDefault();
-			onRenameSubmit?.(renameInputRef.value);
+			isRenamingInProgress = true;
+			// 使用setTimeout确保blur事件不会立即触发
+			setTimeout(() => {
+				onRenameSubmit?.(renameInputRef.value).finally(() => {
+					isRenamingInProgress = false;
+				});
+			}, 0);
 		} else if (e.key === 'Escape') {
 			e.preventDefault();
 			onRenameCancel?.();
@@ -209,7 +217,13 @@
 				class="w-full rounded border border-seko-accent bg-black/50 p-0.5 px-1 text-center text-xs text-white outline-none focus:ring-1 focus:ring-seko-accent"
 				onkeydown={handleKeyDown}
 				onclick={(e) => e.stopPropagation()}
-				onblur={() => onRenameSubmit?.(renameInputRef.value)}
+				onblur={() => {
+					if (isRenamingInProgress) return;
+					isRenamingInProgress = true;
+					onRenameSubmit?.(renameInputRef.value).finally(() => {
+						isRenamingInProgress = false;
+					});
+				}}
 			/>
 		{:else}
 			<p class="truncate text-xs font-medium text-gray-300 group-hover:text-white">

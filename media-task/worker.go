@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,7 +27,9 @@ const (
 	// 视频任务2：检查状态
 	TaskTypeVideoCheckStatus = "video:check_status"
 
-	API_BASE = "https://api.laozhang.ai/v1"
+	API_BASE               = "https://api.laozhang.ai/v1"
+	API_BASE_BETA          = "https://api.laozhang.ai/v1beta"
+	IMAGE_GENERATION_MODEL = "gemini-3-pro-image-preview:generateContent"
 )
 
 // Helper to update task status in SvelteKit
@@ -115,7 +118,7 @@ func NewServer() *asynq.Server {
 	})
 }
 
-// HandleImageGenerateTask 处理图片生成任务
+// HandleImageGenerateTask 处理图片生成任务（同步）
 func HandleImageGenerateTask(ctx context.Context, t *asynq.Task) error {
 	var p ImageGeneratePayload
 	if err := json.Unmarshal(t.Payload(), &p); err != nil {
@@ -124,15 +127,148 @@ func HandleImageGenerateTask(ctx context.Context, t *asynq.Task) error {
 
 	fmt.Printf("\n=== [IMAGE] Processing: %s (Asset: %s) ===\n", p.TaskID, p.AssetID)
 
-	// Notify "execute" -> "generating"
-	updateTaskStatus(p.TaskID, "generating", nil)
+	tmpDir := "tmp"
+	os.MkdirAll(tmpDir, 0755)
+	localRefPath := ""
+	localCoverPath := ""
+	coverKey := ""
 
-	time.Sleep(2 * time.Second)
+	// 1. Download Reference Image from R2 if exists
+	if p.ImagePath != "" {
+		localRefPath = filepath.Join(tmpDir, fmt.Sprintf("%s_ref.png", p.TaskID))
+		defer os.Remove(localRefPath)
 
-	// Simulate completion for Image
-	updateTaskStatus(p.TaskID, "completed", map[string]interface{}{
-		"resultUrl": "mock_result_url",
+		bucketName := os.Getenv("R2_BUCKET")
+		if bucketName == "" {
+			bucketName = "jeweai"
+		}
+
+		err := downloadFromR2(ctx, bucketName, p.ImagePath, localRefPath)
+		if err != nil {
+			fmt.Printf("[IMAGE] Failed to download reference image: %v\n", err)
+			return err
+		}
+		fmt.Printf("[IMAGE] Downloaded reference image: %s\n", p.ImagePath)
+
+		// 2. Generate 720p Cover for Reference
+		localCoverPath = filepath.Join(tmpDir, fmt.Sprintf("%s_ref_cover.png", p.TaskID))
+		err = generateReferenceCover(localRefPath, localCoverPath)
+		if err == nil {
+			coversBucket := os.Getenv("R2_PUBLIC_BUCKET")
+			if coversBucket == "" {
+				coversBucket = "covers"
+			}
+
+			// Fixed user ID: userid123456
+			coverKey = fmt.Sprintf("userid123456/%s_720p.png", p.TaskID)
+			err = uploadToR2(ctx, localCoverPath, coversBucket, coverKey)
+			if err != nil {
+				fmt.Printf("[IMAGE] Upload cover warning: %v\n", err)
+			} else {
+				fmt.Printf("[IMAGE] Uploaded cover: %s\n", coverKey)
+			}
+			defer os.Remove(localCoverPath)
+		} else {
+			fmt.Printf("[IMAGE] Generate cover warning: %v\n", err)
+		}
+	}
+
+	// 3. Notify "generating" with coverPath
+	updateTaskStatus(p.TaskID, "generating", map[string]interface{}{
+		"coverPath": coverKey,
 	})
+
+	// 4. Call AI Image Generation API (synchronous)
+	apiKey := os.Getenv("AI_API_KEY")
+	var generatedImageData []byte
+	var err error
+
+	if apiKey == "" {
+		fmt.Printf("[IMAGE] No AI_API_KEY found, switching to MOCK mode.\n")
+		// Create a dummy image file
+		dummyPath := filepath.Join(tmpDir, fmt.Sprintf("%s_generated.png", p.TaskID))
+		createDummyFile(dummyPath)
+		generatedImageData, err = os.ReadFile(dummyPath)
+		os.Remove(dummyPath)
+		if err != nil {
+			fmt.Printf("[IMAGE] Failed to read dummy image: %v\n", err)
+			updateTaskStatus(p.TaskID, "failed", nil)
+			return nil
+		}
+	} else {
+		fmt.Printf("[IMAGE] Sending real request to AI Provider...\n")
+		generatedImageData, err = submitImageGenerateTask(apiKey, p.Prompt, localRefPath, p.Width, p.Height)
+		if err != nil {
+			fmt.Printf("[IMAGE] Failed to generate image: %v\n", err)
+			updateTaskStatus(p.TaskID, "failed", nil)
+			return nil
+		}
+		fmt.Printf("[IMAGE] Image generated successfully, size: %d bytes\n", len(generatedImageData))
+	}
+
+	// 5. Save generated image to temp file
+	localGeneratedPath := filepath.Join(tmpDir, fmt.Sprintf("%s_generated.png", p.TaskID))
+	err = os.WriteFile(localGeneratedPath, generatedImageData, 0644)
+	if err != nil {
+		fmt.Printf("[IMAGE] Failed to save generated image: %v\n", err)
+		updateTaskStatus(p.TaskID, "failed", nil)
+		return nil
+	}
+	defer os.Remove(localGeneratedPath)
+
+	// 6. Generate cover for generated image (720p)
+	localGeneratedCoverPath := filepath.Join(tmpDir, fmt.Sprintf("%s_generated_cover.png", p.TaskID))
+	err = generateReferenceCover(localGeneratedPath, localGeneratedCoverPath)
+	if err != nil {
+		fmt.Printf("[IMAGE] Generate cover warning: %v, using original image as cover\n", err)
+		// Use generated image itself as cover if cover generation fails
+		localGeneratedCoverPath = localGeneratedPath
+	} else {
+		// Only remove cover file if it was generated separately
+		defer func() {
+			if localGeneratedCoverPath != localGeneratedPath {
+				os.Remove(localGeneratedCoverPath)
+			}
+		}()
+	}
+
+	// 7. Upload generated image and cover to R2
+	jeweaiBucket := os.Getenv("R2_BUCKET")
+	if jeweaiBucket == "" {
+		jeweaiBucket = "jeweai"
+	}
+
+	coversBucket := os.Getenv("R2_PUBLIC_BUCKET")
+	if coversBucket == "" {
+		coversBucket = "covers"
+	}
+
+	// Upload generated image to jeweai bucket (private)
+	imageKey := fmt.Sprintf("userid123456/%s.png", p.TaskID)
+	err = uploadToR2(ctx, localGeneratedPath, jeweaiBucket, imageKey)
+	if err != nil {
+		fmt.Printf("[IMAGE] Upload generated image error: %v\n", err)
+		updateTaskStatus(p.TaskID, "failed", nil)
+		return nil
+	}
+	fmt.Printf("[IMAGE] Uploaded generated image: %s\n", imageKey)
+
+	// Upload generated image cover to covers bucket (public)
+	imageCoverKey := fmt.Sprintf("userid123456/%s_cover.png", p.TaskID)
+	err = uploadToR2(ctx, localGeneratedCoverPath, coversBucket, imageCoverKey)
+	if err != nil {
+		fmt.Printf("[IMAGE] Upload generated cover error: %v\n", err)
+		// Don't fail if cover upload fails
+	}
+
+	// 8. Notify "completed" with imagePath, imageCoverPath, width, height
+	updateTaskStatus(p.TaskID, "completed", map[string]interface{}{
+		"imagePath":      imageKey,
+		"imageCoverPath": imageCoverKey,
+		"width":          p.Width,
+		"height":         p.Height,
+	})
+
 	fmt.Printf("=== [IMAGE] COMPLETED: %s ===\n\n", p.TaskID)
 	return nil
 }
@@ -204,15 +340,15 @@ func HandleVideoGenerateTask(ctx context.Context, t *asynq.Task) error {
 		externalID = fmt.Sprintf("mock_ext_%d", time.Now().UnixNano())
 	} else {
 		fmt.Printf("[VIDEO] Sending real request to AI Provider...\n")
-		// // Prepare Multipart Request
-		// extID, err := submitVideoTask(apiKey, p.Prompt, localRefPath)
-		// if err != nil {
-		// 	fmt.Printf("[VIDEO] Failed to submit video task: %v\n", err)
-		// 	updateTaskStatus(p.TaskID, "failed", nil)
-		// 	return nil
-		// }
-		// externalID = extID
-		// fmt.Printf("[VIDEO] Real Task Submitted. ID: %s\n", externalID)
+		// Prepare Multipart Request
+		extID, err := submitVideoTask(apiKey, p.Prompt, localRefPath)
+		if err != nil {
+			fmt.Printf("[VIDEO] Failed to submit video task: %v\n", err)
+			updateTaskStatus(p.TaskID, "failed", nil)
+			return nil
+		}
+		externalID = extID
+		fmt.Printf("[VIDEO] Real Task Submitted. ID: %s\n", externalID)
 	}
 
 	// 5. Enqueue Status Check
@@ -343,7 +479,7 @@ func HandleVideoCheckStatusTask(ctx context.Context, t *asynq.Task) error {
 	if err := json.Unmarshal(t.Payload(), &p); err != nil {
 		return fmt.Errorf("marshal error: %v", err)
 	}
-	p.ExternalID = "video_d73099dc-4193-40bd-b8b5-485bf01aa18b" // TODO:
+	// p.ExternalID = "video_d73099dc-4193-40bd-b8b5-485bf01aa18b" // TODO:
 
 	fmt.Printf("=== [VIDEO] Checking Status: %s (Ext: %s, Try: %d) ===\n", p.TaskID, p.ExternalID, p.TryCount)
 
@@ -534,4 +670,159 @@ func generateThumbnail(videoPath, thumbPath string) error {
 	// ffmpeg -i video.mp4 -ss 00:00:01.000 -vframes 1 thumb.png
 	cmd := exec.Command("ffmpeg", "-i", videoPath, "-ss", "00:00:01.000", "-vframes", "1", "-y", thumbPath)
 	return cmd.Run()
+}
+
+// submitImageGenerateTask 调用 Gemini API 生成图片（同步）
+func submitImageGenerateTask(apiKey, prompt, imagePath string, width, height int) ([]byte, error) {
+	url := fmt.Sprintf("%s/models/%s", API_BASE_BETA, IMAGE_GENERATION_MODEL)
+
+	// Prepare request payload
+	payload := map[string]interface{}{
+		"generationConfig": map[string]interface{}{
+			"responseModalities": []string{"IMAGE"},
+			"imageConfig": map[string]interface{}{
+				"aspectRatio": getAspectRatio(width, height),
+				"imageSize":   "4K", // 1K, 2K, 4K
+			},
+		},
+	}
+
+	// Build contents array
+	contents := map[string]interface{}{
+		"parts": []map[string]interface{}{
+			{"text": prompt},
+		},
+	}
+
+	// Add image if provided
+	if imagePath != "" && imagePath != "null" {
+		// Read and encode image to base64
+		imageData, err := os.ReadFile(imagePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read image file: %v", err)
+		}
+
+		imageB64 := make([]byte, base64.StdEncoding.EncodedLen(len(imageData)))
+		base64.StdEncoding.Encode(imageB64, imageData)
+
+		// Determine mime type from file extension
+		mimeType := "image/jpeg"
+		ext := filepath.Ext(imagePath)
+		switch ext {
+		case ".png":
+			mimeType = "image/png"
+		case ".gif":
+			mimeType = "image/gif"
+		case ".webp":
+			mimeType = "image/webp"
+		}
+
+		contents["parts"] = append(contents["parts"].([]map[string]interface{}), map[string]interface{}{
+			"inline_data": map[string]interface{}{
+				"mime_type": mimeType,
+				"data":      string(imageB64),
+			},
+		})
+	}
+
+	payload["contents"] = []map[string]interface{}{contents}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal payload: %v", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 300 * time.Second} // Allow more time for image generation
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("API Error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	// Parse Response
+	var result struct {
+		Candidates []struct {
+			Content struct {
+				Parts []struct {
+					InlineData struct {
+						Data string `json:"data"`
+					} `json:"inlineData"`
+				} `json:"parts"`
+			} `json:"content"`
+		} `json:"candidates"`
+	}
+
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("json parse error: %v (Body: %s)", err, string(respBody))
+	}
+
+	if len(result.Candidates) == 0 ||
+		len(result.Candidates[0].Content.Parts) == 0 ||
+		result.Candidates[0].Content.Parts[0].InlineData.Data == "" {
+		return nil, fmt.Errorf("no image data in response: %s", string(respBody))
+	}
+
+	// Decode base64 image data
+	imageData, err := base64.StdEncoding.DecodeString(result.Candidates[0].Content.Parts[0].InlineData.Data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode base64 image: %v", err)
+	}
+
+	return imageData, nil
+}
+
+// getAspectRatio 根据宽度和高度计算宽高比字符串
+func getAspectRatio(width, height int) string {
+	// Calculate aspect ratio
+	gcd := func(a, b int) int {
+		for b != 0 {
+			a, b = b, a%b
+		}
+		return a
+	}
+
+	if width == 0 || height == 0 {
+		return "1:1" // Default
+	}
+
+	// Simplify ratio
+	w, h := width, height
+	d := gcd(w, h)
+	w /= d
+	h /= d
+
+	// Common ratios
+	if w == 1 && h == 1 {
+		return "1:1"
+	} else if w == 16 && h == 9 {
+		return "16:9"
+	} else if w == 9 && h == 16 {
+		return "9:16"
+	} else if w == 4 && h == 3 {
+		return "4:3"
+	} else if w == 3 && h == 4 {
+		return "3:4"
+	} else if w == 21 && h == 9 {
+		return "21:9"
+	}
+
+	// Return simplified ratio or default
+	if w <= 32 && h <= 32 {
+		return fmt.Sprintf("%d:%d", w, h)
+	}
+
+	return "1:1" // Default fallback
 }
