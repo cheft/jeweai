@@ -396,23 +396,121 @@
 		}
 	}
 
-	function handleDownload() {
-		if (selectedIds.length === 0) return;
-		const itemsToDownload = [...assets, ...folders].filter((a) => selectedIds.includes(a.id));
-		for (const item of itemsToDownload) {
-			if (item.type === 'folder') {
-			// window.open(item.url, '_blank');
+	// Helper to recursively collect files
+	async function collectDownloadItems(items: Asset[]): Promise<Asset[]> {
+		let collected: Asset[] = [];
+		let queue = [...items];
+
+		// Safety break to prevent infinite loops or massive downloads
+		let iterations = 0;
+		const MAX_ITERATIONS = 100;
+
+		while (queue.length > 0) {
+			iterations++;
+			if (iterations > MAX_ITERATIONS) break;
+
+			const item = queue.shift()!;
+			
+			// Check limit before fetching more
+			if (collected.length > 10) {
+				throw new Error('一次最多下载10个文件');
 			}
+
+			if (item.type === 'folder') {
+				// Fetch children
+				const children = await client.assets.list({ folderId: item.id, includeFolders: true });
+				const childrenTyped: Asset[] = children.map((c) => ({
+					...c,
+					parentId: c.folderId || null,
+					thumbnail: c.coverUrl || undefined
+				}));
+				queue.push(...childrenTyped);
+			} else {
+				collected.push(item);
+			}
+		}
+
+		if (collected.length > 10) {
+			throw new Error('一次最多下载10个文件');
+		}
+
+		return collected;
+	}
+
+	async function handleDownload() {
+		if (selectedIds.length === 0) return;
+		
+		const initialItems = [...assets, ...folders].filter((a) => selectedIds.includes(a.id));
+		const isZip = initialItems.some((i) => i.type === 'folder') || initialItems.length > 1;
+
+		isLoading = true;
+		try {
+			const filesToDownload = await collectDownloadItems(initialItems);
+
+			if (filesToDownload.length === 0) {
+				alert('没有可下载的文件');
+				return;
+			}
+
+			if (!isZip && filesToDownload.length === 1) {
+				// Single file direct download via proxy
+				// This handles Content-Disposition: attachment to force download
+				const file = filesToDownload[0];
+				
+				// Create a hidden iframe or link click to trigger download without replacing page
+				const url = `/api/download/${file.id}`;
+				const a = document.createElement('a');
+				a.href = url;
+				a.download = file.name; // Browser fallback
+				document.body.appendChild(a);
+				a.click();
+				document.body.removeChild(a);
+			} else {
+				// Zip download
+				const zip = new JSZip();
+				
+				// Fetch files sequentially to avoid browser limits or server issues
+				for (const file of filesToDownload) {
+					try {
+						const url = `/api/download/${file.id}`;
+						const response = await fetch(url);
+						if (!response.ok) {
+							console.error(`Failed to fetch ${file.name}: ${response.status}`);
+							continue;
+						}
+						const blob = await response.blob();
+						zip.file(file.name, blob);
+					} catch (fetchErr) {
+						console.error(`Error fetching ${file.name}:`, fetchErr);
+					}
+				}
+
+				const content = await zip.generateAsync({ type: 'blob' });
+				const zipName = initialItems.length === 1 ? `${initialItems[0].name}.zip` : 'download.zip';
+				
+				const a = document.createElement('a');
+				a.href = URL.createObjectURL(content);
+				a.download = zipName;
+				document.body.appendChild(a);
+				a.click();
+				document.body.removeChild(a);
+				URL.revokeObjectURL(a.href);
+			}
+		} catch (err: any) {
+			console.error('Download failed:', err);
+			alert('下载失败: ' + (err.message || '未知错误'));
+		} finally {
+			isLoading = false;
 		}
 	}
 
 	function handleAIGenerate() {
-		if (selectedIds.length === 0) return;
-		const itemsToGenerate = [...assets, ...folders].filter((a) => selectedIds.includes(a.id));
-		for (const item of itemsToGenerate) {
-			if (item.type === 'folder') {
-			// window.open(item.url, '_blank');
-			}
+		if (selectedIds.length !== 1) return;
+		// Determine if it is a valid image asset
+		const item = [...assets, ...folders].find((a) => a.id === selectedIds[0]);
+		
+		if (item && item.type === 'image') {
+			goto(`/gallery?assetId=${item.id}`);
 		}
 	}
 
