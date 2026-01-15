@@ -468,21 +468,46 @@
 			} else {
 				// Zip download
 				const zip = new JSZip();
-				
+				let hasFiles = false;
+
 				// Fetch files sequentially to avoid browser limits or server issues
 				for (const file of filesToDownload) {
 					try {
+						// Skip folders if they somehow got into the list (though collectDownloadItems should filter them)
+						if (file.type === 'folder') continue;
+
 						const url = `/api/download/${file.id}`;
-						const response = await fetch(url);
+						
+						// Add 30s timeout
+						const controller = new AbortController();
+						const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+						const response = await fetch(url, { signal: controller.signal });
+						clearTimeout(timeoutId);
+
 						if (!response.ok) {
 							console.error(`Failed to fetch ${file.name}: ${response.status}`);
 							continue;
 						}
 						const blob = await response.blob();
-						zip.file(file.name, blob);
+						// Ensure unique filename in zip
+						let filename = file.name;
+						if (zip.file(filename)) {
+							const extIndex = filename.lastIndexOf('.');
+							const base = extIndex > 0 ? filename.substring(0, extIndex) : filename;
+							const ext = extIndex > 0 ? filename.substring(extIndex) : '';
+							filename = `${base}_${file.id.slice(0, 4)}${ext}`;
+						}
+						zip.file(filename, blob);
+						hasFiles = true;
 					} catch (fetchErr) {
 						console.error(`Error fetching ${file.name}:`, fetchErr);
 					}
+				}
+
+				if (!hasFiles) {
+					alert('下载失败：无法获取任何文件内容');
+					return;
 				}
 
 				const content = await zip.generateAsync({ type: 'blob' });
