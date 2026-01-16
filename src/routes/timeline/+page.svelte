@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { fade } from 'svelte/transition';
-	import { Clock, Play, Sparkles } from 'lucide-svelte';
+	import { Clock, Play, Sparkles, RefreshCw } from 'lucide-svelte';
 	import { client } from '$lib/orpc';
 	import { onDestroy, onMount } from 'svelte';
 
@@ -15,6 +15,16 @@
 			console.error('Failed to fetch tasks:', err);
 		} finally {
 			isLoading = false;
+		}
+	};
+
+	const handleRetry = async (taskId: string) => {
+		try {
+			await client.task.retry({ id: taskId });
+			fetchTasks(); // Refresh list to show new queued task
+		} catch (err) {
+			console.error('Failed to retry task:', err);
+			alert('Failed to retry task');
 		}
 	};
 
@@ -136,24 +146,27 @@
 									class="absolute inset-0 bg-linear-to-t from-black/90 via-black/20 to-transparent opacity-90"
 								></div>
 
-								<!-- Play Button Overlay -->
-								<div class="absolute inset-0 flex items-center justify-center">
-									<div
-										class="flex h-16 w-16 transform items-center justify-center rounded-full border border-white/20 bg-white/10 text-white shadow-lg backdrop-blur-md transition-all duration-300 hover:scale-110"
-									>
-										<Play class="ml-1 h-6 w-6 fill-white" />
+								<!-- Play Button Overlay (Videos Only) -->
+								{#if video.type !== 'image'}
+									<div class="absolute inset-0 flex items-center justify-center">
+										<div
+											class="flex h-16 w-16 transform items-center justify-center rounded-full border border-white/20 bg-white/10 text-white shadow-lg backdrop-blur-md transition-all duration-300 hover:scale-110"
+										>
+											<Play class="ml-1 h-6 w-6 fill-white" />
+										</div>
 									</div>
-								</div>
+								{/if}
 
 								<!-- Content Overlay -->
 								<div class="absolute right-0 bottom-0 left-0 p-5">
 									<div class="mb-2 flex items-center justify-between font-mono text-xs opacity-60">
 										<div class="flex items-center gap-2 text-seko-accent">
 											<span class="rounded bg-seko-accent/10 px-1.5 py-0.5">HD</span>
-											<span>•</span>
-											<span>{video.duration}</span>
+											{#if video.type !== 'image'}
+												<span>•</span>
+												<span>{video.duration || '15s'}</span>
+											{/if}
 										</div>
-										<!-- Removed time from here -->
 									</div>
 									<p
 										class="line-clamp-2 text-sm leading-snug font-medium text-white drop-shadow-md group-hover:text-white/90"
@@ -161,12 +174,14 @@
 										{video.prompt}
 									</p>
 									<div class="mt-3 flex items-center gap-2">
-										<img
-											src="{R2_DOMAIN}/{video.referenceImage}"
-											alt="Ref"
-											class="h-8 w-8 rounded-lg border border-white/30 object-cover shadow-sm"
-										/>
-										<span class="text-xs text-gray-400">Reference</span>
+										{#if video.referenceImage}
+											<img
+												src="{R2_DOMAIN}/{video.referenceImage}"
+												alt="Ref"
+												class="h-8 w-8 rounded-lg border border-white/30 object-cover shadow-sm"
+											/>
+											<span class="text-xs text-gray-400">Reference</span>
+										{/if}
 									</div>
 								</div>
 							{:else if video.status === 'generating'}
@@ -198,6 +213,22 @@
 									<div class="w-full max-w-[120px] rounded-full bg-white/5 py-1">
 										<p class="font-mono text-xs text-gray-500">Wait time: ~2m</p>
 									</div>
+								</div>
+							{:else if video.status === 'failed'}
+								<div
+									class="absolute inset-0 flex flex-col items-center justify-center bg-red-900/20 p-6 text-center backdrop-blur-sm"
+								>
+									<div class="mb-4 font-bold text-red-400">Generation Failed</div>
+									<button
+										onclick={(e) => {
+											e.preventDefault();
+											handleRetry(video.id);
+										}}
+										class="flex items-center gap-2 rounded-full border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-200 transition-colors hover:bg-red-500/20"
+									>
+										<RefreshCw class="h-4 w-4" />
+										Retry Check
+									</button>
 								</div>
 							{/if}
 						</a>

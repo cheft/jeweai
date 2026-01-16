@@ -89,17 +89,9 @@ func main() {
 			return c.Status(500).JSON(fiber.Map{"error": fmt.Sprintf("Enqueue error (Video Gen): %v", err)})
 		}
 
-		// 2.3 入队状态检查任务 (延迟 5 秒)
-		checkPayload, _ := json.Marshal(VideoCheckStatusPayload{
-			TaskID:    taskID,
-			AssetID:   payload.AssetID,
-			VideoID:   videoID,
-			ImagePath: payload.ImagePath,
-		})
-		taskCheck := asynq.NewTask(TaskTypeVideoCheckStatus, checkPayload, asynq.Timeout(300*time.Second))
-		if _, err := client.Enqueue(taskCheck, asynq.Queue("media"), asynq.ProcessIn(5*time.Second)); err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": fmt.Sprintf("Enqueue error (Video Check): %v", err)})
-		}
+		// Note: We do NOT enqueue VideoCheckStatus here.
+		// The VideoGenerate task (HandleVideoGenerateTask) will enqueue the first status check
+		// once it has successfully submitted to the AI provider and obtained an ExternalID.
 
 		return c.JSON(fiber.Map{"taskId": taskID, "videoId": videoID})
 	})

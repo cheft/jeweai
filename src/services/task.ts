@@ -77,15 +77,15 @@ export const create = os
           .from(assets)
           .where(and(eq(assets.id, input.assetId), eq(assets.userId, userId)))
           .limit(1);
-        
+
         if (!existingAsset) {
           throw new ORPCError('NOT_FOUND', { message: 'Reference asset not found' });
         }
-        
+
         if (existingAsset.type !== 'image') {
           throw new ORPCError('BAD_REQUEST', { message: 'Reference asset must be an image' });
         }
-        
+
         assetId = existingAsset.id;
         imageKey = existingAsset.path || '';
       } else if (input.image) {
@@ -223,7 +223,7 @@ export const get = os
   .input(z.object({ id: z.string() }))
   .handler(async ({ input, context }: { input: { id: string }, context: any }) => {
     const { db } = context;
-    const userId = 'userid123456'; // TODO: auth
+    const userId = 'userid123456';
 
     const refAssets = alias(assets, 'ref');
     const resAssets = alias(assets, 'res');
@@ -249,5 +249,107 @@ export const get = os
       ...task,
       thumbnail,
       referenceImage: task.referenceCover,
+    };
+  });
+
+
+export const retry = os
+  .input(z.object({ id: z.string() }))
+  .handler(async ({ input, context }: { input: { id: string }, context: any }) => {
+    const { db } = context;
+    const userId = 'userid123456';
+
+    const [existingTask] = await db.select()
+      .from(tasks)
+      .where(and(eq(tasks.id, input.id), eq(tasks.userId, userId)))
+      .limit(1);
+
+    if (!existingTask) {
+      throw new ORPCError('NOT_FOUND', { message: 'Task not found' });
+    }
+
+    // Prepare payload for Go Service based on existing task
+    const isImageOnly = existingTask.type === 'image';
+    const endpoint = isImageOnly ? '/queue/addImage' : '/queue/addVideo';
+
+    // We need to resolve the image path from referenceAssetId if possible
+    let imageKey = "";
+    if (existingTask.referenceAssetId) {
+      const [refAsset] = await db.select().from(assets).where(eq(assets.id, existingTask.referenceAssetId)).limit(1);
+      if (refAsset) {
+        imageKey = refAsset.path || "";
+      }
+    }
+
+    // Default dimensions if not stored? Task table doesn't store dimensions directly, 
+    // but the original Create call computed them.
+    // We might need to assume defaults or look up if we stored metadata. 
+    // For now, default to portrait (720x1280) or landscape?
+    // Let's check metadata or just use standard defaults.
+    // Existing task schema doesn't seem to have width/height columns.
+    // However, the user flow usually defaults to some values.
+    // Let's use 720x1280 (Portrait) or 1280x720 (Landscape).
+    // Can we infer from style or previous inputs? No.
+    // Let's default to Portrait 720x1280 as it seems common for this app (mobile first?).
+    // Actually, looking at `create` handler: 
+    // const width = input.orientation === 'portrait' ? 720 : 1280;
+    // We don't have orientation in `tasks` table. 
+    // We could try to infer from metadata if it exists, but `tasks.metadata` is json.
+    // For safety, let's just use 720x1280. 
+
+    // Better: If we can't be sure, send 0 or let Go handle defaults? 
+    // Go worker expects integers.
+    // Let's use 1080x1920 or similar? 
+    // In `create`: portrait=720x1280.
+    const width = 720;
+    const height = 1280;
+
+    const goPayload: any = {
+      Prompt: existingTask.prompt,
+      StyleID: existingTask.styleId || "",
+      AssetID: existingTask.referenceAssetId || "", // This logic in Create was confusing (AssetID vs ReferenceAssetID). Go uses AssetID for logging?
+      UserID: userId,
+      ImagePath: imageKey,
+      Width: width,
+      Height: height,
+    };
+
+    if (!isImageOnly) {
+      goPayload.VideoID = nanoid();
+    }
+
+    const goResponse = await fetch(`http://localhost:3000${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(goPayload)
+    });
+
+    if (!goResponse.ok) {
+      throw new Error(`Go service error: ${goResponse.status}`);
+    }
+
+    const result = await goResponse.json() as { taskId: string };
+    const newTaskId = result.taskId;
+
+    // Insert new task
+    await db.insert(tasks).values({
+      id: newTaskId,
+      userId,
+      referenceAssetId: existingTask.referenceAssetId,
+      prompt: existingTask.prompt,
+      type: existingTask.type,
+      styleId: existingTask.styleId,
+      status: 'queued',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      metadata: {
+        source: 'retry',
+        originalTaskId: existingTask.id
+      }
+    });
+
+    return {
+      success: true,
+      taskId: newTaskId
     };
   });

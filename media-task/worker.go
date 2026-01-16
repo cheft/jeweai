@@ -530,8 +530,15 @@ func HandleVideoGenerateTask(ctx context.Context, t *asynq.Task) error {
 	client := NewClient()
 	defer client.Close()
 
-	// Start checking after 10 seconds (per user req: "10 seconds poll")
-	client.Enqueue(asynq.NewTask(TaskTypeVideoCheckStatus, checkPayload), asynq.ProcessIn(10*time.Second))
+	// Start checking after 10 seconds
+	fmt.Printf("[VIDEO] Enqueueing Status Check for %s (Provider: %s)...\n", externalID, provider)
+
+	taskInfo, err := client.Enqueue(asynq.NewTask(TaskTypeVideoCheckStatus, checkPayload), asynq.ProcessIn(10*time.Second))
+	if err != nil {
+		fmt.Printf("[VIDEO] Failed to enqueue status check: %v\n", err)
+		return err
+	}
+	fmt.Printf("[VIDEO] Status Check Enqueued: %s\n", taskInfo.ID)
 
 	return nil
 }
