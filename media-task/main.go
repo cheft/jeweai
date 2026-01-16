@@ -35,6 +35,7 @@ func main() {
 	srv := NewServer()
 	mux := asynq.NewServeMux()
 	mux.HandleFunc(TaskTypeImageGenerate, HandleImageGenerateTask)
+	mux.HandleFunc(TaskTypeImageCheckStatus, HandleImageCheckStatusTask)
 	mux.HandleFunc(TaskTypeVideoGenerate, HandleVideoGenerateTask)
 	mux.HandleFunc(TaskTypeVideoCheckStatus, HandleVideoCheckStatusTask)
 

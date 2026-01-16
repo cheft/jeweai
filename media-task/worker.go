@@ -18,8 +18,10 @@ import (
 )
 
 const (
-	// 图片任务：生成图片
+	// 图片任务1：开始生成
 	TaskTypeImageGenerate = "image:generate"
+	// 图片任务2：检查状态
+	TaskTypeImageCheckStatus = "image:check_status"
 	// 视频任务1：开始生成
 	TaskTypeVideoGenerate = "video:generate"
 	// 视频任务2：检查状态
@@ -72,6 +74,16 @@ type ImageGeneratePayload struct {
 	ImgName   string `json:"ImgName"`
 	Prompt    string `json:"Prompt"`
 	StyleID   string `json:"StyleID"`
+}
+
+type ImageCheckStatusPayload struct {
+	TaskID     string `json:"TaskID"`
+	AssetID    string `json:"AssetID"`
+	ExternalID string `json:"ExternalID"`
+	ImagePath  string `json:"ImagePath"` // Reference image path (if any)
+	TryCount   int    `json:"TryCount"`
+	Width      int    `json:"Width"`
+	Height     int    `json:"Height"`
 }
 
 type VideoGeneratePayload struct {
@@ -260,95 +272,124 @@ func HandleImageGenerateTask(ctx context.Context, t *asynq.Task) error {
 		return nil
 	}
 
-	fmt.Printf("[IMAGE] GRSAI Submited: %s. Polling...\n", grsaiID)
-	// Poll for result (Synchronous block as per original design)
-	var generatedImageData []byte
-	success := false
-	for i := 0; i < 40; i++ { // 40 * 3s = 120s
-		time.Sleep(3 * time.Second)
-		status, resultURL, cErr := checkGRSAI(grsaiKey, grsaiID, false)
-		if cErr != nil {
-			fmt.Printf("[IMAGE] GRSAI Poll Error: %v\n", cErr)
-			continue
-		}
-		if status == "success" {
-			fmt.Printf("[IMAGE] GRSAI Success: %s\n", resultURL)
-			dlPath := filepath.Join(tmpDir, fmt.Sprintf("%s_grsai_dl.png", p.TaskID))
-			if dErr := downloadFile(resultURL, dlPath); dErr == nil {
-				imageData, rErr := os.ReadFile(dlPath)
-				os.Remove(dlPath)
-				if rErr == nil {
-					generatedImageData = imageData
-					success = true
-					break
-				}
-			} else {
-				fmt.Printf("[IMAGE] Download Error: %v\n", dErr)
-			}
-		} else if status == "failed" {
-			fmt.Printf("[IMAGE] GRSAI Job Failed.\n")
-			break
-		}
+	fmt.Printf("[IMAGE] GRSAI Submitted: %s. Enqueueing Poll...\n", grsaiID)
+
+	// 5. Enqueue Status Check
+	checkPayload, _ := json.Marshal(ImageCheckStatusPayload{
+		TaskID:     p.TaskID,
+		AssetID:    p.AssetID,
+		ExternalID: grsaiID,
+		ImagePath:  p.ImagePath,
+		TryCount:   0,
+		Width:      p.Width,
+		Height:     p.Height,
+	})
+
+	client := NewClient()
+	defer client.Close()
+
+	if _, err := client.Enqueue(asynq.NewTask(TaskTypeImageCheckStatus, checkPayload), asynq.Queue("media"), asynq.ProcessIn(5*time.Second)); err != nil {
+		fmt.Printf("[IMAGE] Failed to enqueue status check: %v\n", err)
+		return err
+	}
+	fmt.Printf("[IMAGE] Status Check Enqueued for %s\n", grsaiID)
+
+	return nil
+}
+
+// HandleImageCheckStatusTask 处理图片状态检查任务
+func HandleImageCheckStatusTask(ctx context.Context, t *asynq.Task) error {
+	var p ImageCheckStatusPayload
+	if err := json.Unmarshal(t.Payload(), &p); err != nil {
+		return fmt.Errorf("marshal error: %v", err)
 	}
 
-	if !success {
-		fmt.Printf("[IMAGE] Failed to generate image via GRSAI\n")
+	fmt.Printf("=== [IMAGE] Checking Status: %s (Ext: %s, Try: %d) ===\n", p.TaskID, p.ExternalID, p.TryCount)
+
+	grsaiKey := os.Getenv("GRSAI_KEY")
+	if grsaiKey == "" {
+		fmt.Printf("[IMAGE] GRSAI Key missing during check!\n")
 		updateTaskStatus(p.TaskID, "failed", nil)
 		return nil
 	}
 
-	// 5. Save generated image to temp file
-	localGeneratedPath := filepath.Join(tmpDir, fmt.Sprintf("%s_generated.png", p.TaskID))
-	if err := os.WriteFile(localGeneratedPath, generatedImageData, 0644); err != nil {
-		fmt.Printf("[IMAGE] Failed to save generated image: %v\n", err)
+	status, resultURL, err := checkGRSAI(grsaiKey, p.ExternalID, false)
+	if err != nil {
+		fmt.Printf("[IMAGE] GRSAI Check Error: %v\n", err)
+		// On network error or similar, we might want to retry
+		status = "processing"
+	}
+
+	if status == "processing" || status == "pending" {
+		if p.TryCount > 60 { // Timeout (60 * 5s = 300s)
+			fmt.Printf("[IMAGE] Polling Timeout: %s\n", p.TaskID)
+			updateTaskStatus(p.TaskID, "failed", nil)
+			return nil
+		}
+		// Re-enqueue
+		p.TryCount++
+		payload, _ := json.Marshal(p)
+		client := NewClient()
+		defer client.Close()
+		client.Enqueue(asynq.NewTask(TaskTypeImageCheckStatus, payload), asynq.Queue("media"), asynq.ProcessIn(5*time.Second))
+		return nil
+	}
+
+	if status == "success" {
+		fmt.Printf("[IMAGE] GRSAI Success: %s\n", resultURL)
+		return processImageResult(ctx, p, resultURL)
+	}
+
+	fmt.Printf("[IMAGE] Task Failed or Error: %s\n", status)
+	updateTaskStatus(p.TaskID, "failed", nil)
+	return nil
+}
+
+// processImageResult handles the download and storage of the generated image
+func processImageResult(ctx context.Context, p ImageCheckStatusPayload, resultURL string) error {
+	tmpDir := "tmp"
+	os.MkdirAll(tmpDir, 0755)
+
+	dlPath := filepath.Join(tmpDir, fmt.Sprintf("%s_generated.png", p.TaskID))
+	if err := downloadFile(resultURL, dlPath); err != nil {
+		fmt.Printf("[IMAGE] Download Error: %v\n", err)
 		updateTaskStatus(p.TaskID, "failed", nil)
 		return nil
 	}
-	defer os.Remove(localGeneratedPath)
+	defer os.Remove(dlPath)
 
 	// 6. Generate cover for generated image (720p)
 	localGeneratedCoverPath := filepath.Join(tmpDir, fmt.Sprintf("%s_generated_cover.png", p.TaskID))
-	if err := generateReferenceCover(localGeneratedPath, localGeneratedCoverPath); err != nil {
+	if err := generateReferenceCover(dlPath, localGeneratedCoverPath); err != nil {
 		fmt.Printf("[IMAGE] Generate cover warning: %v, using original image as cover\n", err)
-		// Use generated image itself as cover if cover generation fails
-		localGeneratedCoverPath = localGeneratedPath
+		localGeneratedCoverPath = dlPath
 	} else {
-		// Only remove cover file if it was generated separately
-		defer func() {
-			if localGeneratedCoverPath != localGeneratedPath {
-				os.Remove(localGeneratedCoverPath)
-			}
-		}()
+		defer os.Remove(localGeneratedCoverPath)
 	}
 
-	// 7. Upload generated image and cover to R2
-	jeweaiBucket = os.Getenv("R2_BUCKET")
+	// 7. Upload to R2
+	jeweaiBucket := os.Getenv("R2_BUCKET")
 	if jeweaiBucket == "" {
 		jeweaiBucket = "jeweai"
 	}
-
 	coversBucket := os.Getenv("R2_PUBLIC_BUCKET")
 	if coversBucket == "" {
 		coversBucket = "covers"
 	}
 
-	// Upload generated image to jeweai bucket (private)
 	imageKey := fmt.Sprintf("userid123456/%s.png", p.TaskID)
-	if err := uploadToR2(ctx, localGeneratedPath, jeweaiBucket, imageKey); err != nil {
+	if err := uploadToR2(ctx, dlPath, jeweaiBucket, imageKey); err != nil {
 		fmt.Printf("[IMAGE] Upload generated image error: %v\n", err)
 		updateTaskStatus(p.TaskID, "failed", nil)
 		return nil
 	}
-	fmt.Printf("[IMAGE] Uploaded generated image: %s\n", imageKey)
 
-	// Upload generated image cover to covers bucket (public)
 	imageCoverKey := fmt.Sprintf("userid123456/%s_cover.png", p.TaskID)
 	if err := uploadToR2(ctx, localGeneratedCoverPath, coversBucket, imageCoverKey); err != nil {
 		fmt.Printf("[IMAGE] Upload generated cover error: %v\n", err)
-		// Don't fail if cover upload fails
 	}
 
-	// 8. Notify "completed" with imagePath, imageCoverPath, width, height
+	// 8. Notify "completed"
 	updateTaskStatus(p.TaskID, "completed", map[string]interface{}{
 		"imagePath":      imageKey,
 		"imageCoverPath": imageCoverKey,
@@ -356,7 +397,7 @@ func HandleImageGenerateTask(ctx context.Context, t *asynq.Task) error {
 		"height":         p.Height,
 	})
 
-	fmt.Printf("=== [IMAGE] COMPLETED: %s ===\n\n", p.TaskID)
+	fmt.Printf("=== [IMAGE] COMPLETED: %s ===\n", p.TaskID)
 	return nil
 }
 
@@ -471,7 +512,7 @@ func HandleVideoGenerateTask(ctx context.Context, t *asynq.Task) error {
 	// Start checking after 10 seconds
 	fmt.Printf("[VIDEO] Enqueueing Status Check for %s...\n", externalID)
 
-	taskInfo, err := client.Enqueue(asynq.NewTask(TaskTypeVideoCheckStatus, checkPayload), asynq.ProcessIn(10*time.Second))
+	taskInfo, err := client.Enqueue(asynq.NewTask(TaskTypeVideoCheckStatus, checkPayload), asynq.Queue("media"), asynq.ProcessIn(10*time.Second))
 	if err != nil {
 		fmt.Printf("[VIDEO] Failed to enqueue status check: %v\n", err)
 		return err
@@ -525,27 +566,25 @@ func HandleVideoCheckStatusTask(ctx context.Context, t *asynq.Task) error {
 	if err := json.Unmarshal(t.Payload(), &p); err != nil {
 		return fmt.Errorf("marshal error: %v", err)
 	}
-	// p.ExternalID = "video_d73099dc-4193-40bd-b8b5-485bf01aa18b" // TODO:
 
 	fmt.Printf("=== [VIDEO] Checking Status: %s (Ext: %s, Try: %d) ===\n", p.TaskID, p.ExternalID, p.TryCount)
 
-	status := "pending"
 	grsaiKey := os.Getenv("GRSAI_KEY")
 	if grsaiKey == "" {
 		fmt.Printf("[VIDEO] GRSAI Key missing during check!\n")
-		status = "failed"
-	} else {
-		s, _, err := checkGRSAI(grsaiKey, p.ExternalID, true)
-		if err != nil {
-			fmt.Printf("[VIDEO] GRSAI Check Error: %v\n", err)
-			status = "processing"
-		} else {
-			status = s
-		}
+		updateTaskStatus(p.TaskID, "failed", nil)
+		return nil
+	}
+
+	status, resultURL, err := checkGRSAI(grsaiKey, p.ExternalID, true)
+	if err != nil {
+		fmt.Printf("[VIDEO] GRSAI Check Error: %v\n", err)
+		status = "processing" // Assume processing if there's an error checking status
 	}
 
 	if status == "processing" || status == "pending" {
-		if p.TryCount > 60 { // Timeout
+		if p.TryCount > 60 { // Timeout (60 * 10s = 600s = 10min)
+			fmt.Printf("[VIDEO] Polling Timeout: %s\n", p.TaskID)
 			updateTaskStatus(p.TaskID, "failed", nil)
 			return nil
 		}
@@ -554,93 +593,79 @@ func HandleVideoCheckStatusTask(ctx context.Context, t *asynq.Task) error {
 		payload, _ := json.Marshal(p)
 		client := NewClient()
 		defer client.Close()
-		client.Enqueue(asynq.NewTask(TaskTypeVideoCheckStatus, payload), asynq.ProcessIn(10*time.Second)) // Poll every 10s
+		client.Enqueue(asynq.NewTask(TaskTypeVideoCheckStatus, payload), asynq.Queue("media"), asynq.ProcessIn(10*time.Second))
 		return nil
 	}
 
-	if status == "success" || status == "completed" {
-		// Mock Video Generation
-		tmpDir := "tmp"
-		os.MkdirAll(tmpDir, 0755)
-		tmpVideoPath := filepath.Join(tmpDir, p.VideoID+".mp4")
-
-		// Download Logic
-		// Get download URL again (or store it? CheckGRSAI returns it)
-		_, resultURL, err := checkGRSAI(grsaiKey, p.ExternalID, true)
-		if err == nil && resultURL != "" {
-			err = downloadFile(resultURL, tmpVideoPath)
-			if err != nil {
-				fmt.Printf("[VIDEO] GRSAI Download Error: %v\n", err)
-				updateTaskStatus(p.TaskID, "failed", nil)
-				return nil
-			}
-		} else {
-			fmt.Printf("[VIDEO] GRSAI Get URL Error: %v\n", err)
-			updateTaskStatus(p.TaskID, "failed", nil)
-			return nil
-		}
-
-		defer os.Remove(tmpVideoPath)
-
-		// Generate Thumbnail (Video Cover) using FFMPEG
-		thumbPath := filepath.Join(tmpDir, p.VideoID+"_thumb.png")
-		err = generateThumbnail(tmpVideoPath, thumbPath)
-		if err != nil {
-			fmt.Printf("Thumbnail generation error: %v\n", err)
-			createDummyFile(thumbPath)
-		}
-		defer os.Remove(thumbPath)
-
-		// Storage Logic
-		// Video -> Jeweai (Private): userid123456/{videoID}.mp4
-		// Thumb -> Covers (Public): userid123456/{videoID}_thumb.png
-
-		// Fixed user ID: userid123456
-		// Video stored in jeweai bucket (private), thumbnail in covers bucket (public)
-		jeweaiBucket := os.Getenv("R2_BUCKET")
-		if jeweaiBucket == "" {
-			jeweaiBucket = "jeweai"
-		}
-
-		coversBucket := os.Getenv("R2_PUBLIC_BUCKET")
-		if coversBucket == "" {
-			coversBucket = "covers"
-		}
-
-		// Video file in jeweai bucket: userid123456/{videoID}.mp4
-		videoKey := fmt.Sprintf("userid123456/%s.mp4", p.VideoID)
-		// Thumbnail in covers bucket: userid123456/{videoID}_thumb.png
-		thumbKey := fmt.Sprintf("userid123456/%s_thumb.png", p.VideoID)
-
-		// NOTE: uploadToR2 is from main.go
-		// Upload Video (Private)
-		err = uploadToR2(ctx, tmpVideoPath, jeweaiBucket, videoKey)
-		if err != nil {
-			fmt.Printf("Upload video error: %v\n", err)
-		}
-		// Upload Thumb (Public)
-		err = uploadToR2(ctx, thumbPath, coversBucket, thumbKey)
-		if err != nil {
-			fmt.Printf("Upload thumb error: %v\n", err)
-		}
-
-		fmt.Printf("[VIDEO] Processed & Uploaded: %s (Private), %s (Public)\n", videoKey, thumbKey)
-
-		// User asked to notify Nodejs: "task completed... video and thumbnail... asset created"
-		// Send "completed" webhook with `videoPath` and `videoCoverPath`
-		updateTaskStatus(p.TaskID, "completed", map[string]interface{}{
-			"videoPath":      videoKey,
-			"videoCoverPath": thumbKey,
-			"width":          p.Width,
-			"height":         p.Height,
-		})
-
-		return nil
+	if status == "success" || status == "finish" {
+		fmt.Printf("[VIDEO] GRSAI Success: %s\n", resultURL)
+		return processVideoResult(ctx, p, resultURL)
 	}
 
+	fmt.Printf("[VIDEO] Task Failed or Error: %s\n", status)
 	updateTaskStatus(p.TaskID, "failed", nil)
 	return nil
 }
+
+// processVideoResult handles the download and storage of the generated video
+func processVideoResult(ctx context.Context, p VideoCheckStatusPayload, resultURL string) error {
+	tmpDir := "tmp"
+	os.MkdirAll(tmpDir, 0755)
+	tmpVideoPath := filepath.Join(tmpDir, p.VideoID+".mp4")
+
+	if err := downloadFile(resultURL, tmpVideoPath); err != nil {
+		fmt.Printf("[VIDEO] Download Error: %v\n", err)
+		updateTaskStatus(p.TaskID, "failed", nil)
+		return nil
+	}
+	defer os.Remove(tmpVideoPath)
+
+	// Generate Thumbnail (Video Cover) using FFMPEG
+	thumbPath := filepath.Join(tmpDir, p.VideoID+"_thumb.png")
+	if err := generateThumbnail(tmpVideoPath, thumbPath); err != nil {
+		fmt.Printf("[VIDEO] Thumbnail generation error: %v\n", err)
+		createDummyFile(thumbPath)
+	}
+	defer os.Remove(thumbPath)
+
+	// Storage Logic
+	jeweaiBucket := os.Getenv("R2_BUCKET")
+	if jeweaiBucket == "" {
+		jeweaiBucket = "jeweai"
+	}
+	coversBucket := os.Getenv("R2_PUBLIC_BUCKET")
+	if coversBucket == "" {
+		coversBucket = "covers"
+	}
+
+	videoKey := fmt.Sprintf("userid123456/%s.mp4", p.VideoID)
+	thumbKey := fmt.Sprintf("userid123456/%s_thumb.png", p.VideoID)
+
+	// Upload Video (Private)
+	if err := uploadToR2(ctx, tmpVideoPath, jeweaiBucket, videoKey); err != nil {
+		fmt.Printf("[VIDEO] Upload video error: %v\n", err)
+		updateTaskStatus(p.TaskID, "failed", nil)
+		return nil
+	}
+
+	// Upload Thumb (Public)
+	if err := uploadToR2(ctx, thumbPath, coversBucket, thumbKey); err != nil {
+		fmt.Printf("[VIDEO] Upload thumb error: %v\n", err)
+	}
+
+	fmt.Printf("[VIDEO] Processed & Uploaded: %s (Private), %s (Public)\n", videoKey, thumbKey)
+
+	// Notify "completed"
+	updateTaskStatus(p.TaskID, "completed", map[string]interface{}{
+		"videoPath":      videoKey,
+		"videoCoverPath": thumbKey,
+		"width":          p.Width,
+		"height":         p.Height,
+	})
+
+	return nil
+}
+
 func createDummyFile(path string) {
 	os.WriteFile(path, []byte("dummy file"), 0644)
 }
@@ -698,13 +723,14 @@ func downloadFile(url string, destPath string) error {
 	if err != nil {
 		return err
 	}
-
 	fmt.Printf("[DEBUG] Downloaded %d bytes to %s\n", n, destPath)
 
-	// Debug small files
-	if n < 100 {
+	// Check if file is too small (e.g. less than 100 bytes is likely an error message)
+	if n < 500 {
 		content, _ := os.ReadFile(destPath)
-		fmt.Printf("[DEBUG] Small file content: %s\n", string(content))
+		fmt.Printf("[DEBUG] Small file content alert: %s\n", string(content))
+		os.Remove(destPath)
+		return fmt.Errorf("downloaded file is too small (%d bytes), likely an error response: %s", n, string(content))
 	}
 
 	return nil
@@ -938,9 +964,14 @@ func checkGRSAI(apiKey, taskID string, looksLikeVideo bool) (string, string, err
 
 	finalStatus := "processing"
 	// Map status
-	if status == "succeeded" || status == "success" || status == "completed" {
+	statusLower := ""
+	if status != "" {
+		statusLower = status
+	}
+
+	if statusLower == "succeeded" || statusLower == "success" || statusLower == "completed" || statusLower == "finish" {
 		finalStatus = "success"
-	} else if status == "failed" || status == "error" {
+	} else if statusLower == "failed" || statusLower == "error" {
 		finalStatus = "failed"
 	}
 
