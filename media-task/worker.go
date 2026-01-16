@@ -3,11 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"os"
 	"os/exec"
@@ -26,10 +24,6 @@ const (
 	TaskTypeVideoGenerate = "video:generate"
 	// 视频任务2：检查状态
 	TaskTypeVideoCheckStatus = "video:check_status"
-
-	API_BASE               = "https://api.laozhang.ai/v1"
-	API_BASE_BETA          = "https://api.laozhang.ai/v1beta"
-	IMAGE_GENERATION_MODEL = "gemini-3-pro-image-preview:generateContent"
 
 	// GRSAI Constants
 	GRSAI_API_BASE = "https://grsai.dakka.com.cn/v1"
@@ -97,7 +91,6 @@ type VideoCheckStatusPayload struct {
 	AssetID    string `json:"AssetID"`
 	VideoID    string `json:"VideoID"` // Internal ID
 	ExternalID string `json:"ExternalID"`
-	Provider   string `json:"Provider"`  // "grsai" or default
 	ImagePath  string `json:"ImagePath"` // Reference image path
 	TryCount   int    `json:"TryCount"`
 	UserID     string `json:"UserID"`
@@ -233,108 +226,80 @@ func HandleImageGenerateTask(ctx context.Context, t *asynq.Task) error {
 		"coverPath": coverKey,
 	})
 
-	// 4. Call AI Image Generation API
-	apiKey := os.Getenv("AI_API_KEY")
+	// 4. Call GRSAI Image Generation API
 	grsaiKey := os.Getenv("GRSAI_KEY")
+	if grsaiKey == "" {
+		fmt.Printf("[IMAGE] GRSAI_KEY not found\n")
+		updateTaskStatus(p.TaskID, "failed", nil)
+		return nil
+	}
+
+	fmt.Printf("[IMAGE] Attempting GRSAI...\n")
+	jeweaiBucket := os.Getenv("R2_BUCKET")
+	if jeweaiBucket == "" {
+		jeweaiBucket = "jeweai"
+	}
+
+	presignedURL, pErr := generateR2PresignedURL(ctx, jeweaiBucket, p.ImagePath)
+	if pErr != nil {
+		fmt.Printf("[IMAGE] Presign Error: %v\n", pErr)
+		updateTaskStatus(p.TaskID, "failed", nil)
+		return nil
+	}
+
+	// Determine size based on p.Width/p.Height
+	aspectRatio := "1:1" // Default
+	if p.Width > 0 && p.Height > 0 {
+		aspectRatio = getAspectRatio(p.Width, p.Height)
+	}
+
+	grsaiID, sErr := submitGRSAIImage(grsaiKey, p.Prompt, presignedURL, aspectRatio)
+	if sErr != nil {
+		fmt.Printf("[IMAGE] GRSAI Submit Failed: %v\n", sErr)
+		updateTaskStatus(p.TaskID, "failed", nil)
+		return nil
+	}
+
+	fmt.Printf("[IMAGE] GRSAI Submited: %s. Polling...\n", grsaiID)
+	// Poll for result (Synchronous block as per original design)
 	var generatedImageData []byte
-	var err error
-
-	// Flag to track which provider worked
-	providerUsed := "none"
-
-	// --- Try GRSAI First ---
-	if grsaiKey != "" && p.ImagePath != "" { // GRSAI needs an input image URL? Payload says "urls": [...]. Yes supports ref image.
-		fmt.Printf("[IMAGE] Attempting GRSAI...\n")
-		// Need a publicly accessible URL for the reference image.
-		// We uploaded a cover to R2 public bucket: 'coverKey'. Let's generate a presigned URL for the *original* reference if possible, or use the cover.
-		// Best to use the original reference image we downloaded. But we need a URL.
-		// We can generate a presigned URL for the 'uploaded' image in R2 (since we don't have public domain info handy).
-		// Wait, we downloaded 'p.ImagePath' from R2 Private to local.
-		// We should generate a presigned URL for `p.ImagePath` (in private bucket) or `coverKey` (in public bucket).
-		// User mentioned "参考图URL，可生成两小时临时公开链接". Presigning p.ImagePath (private) is best.
-
-		refImageKey := p.ImagePath
-		jeweaiBucket := os.Getenv("R2_BUCKET")
-		if jeweaiBucket == "" {
-			jeweaiBucket = "jeweai"
+	success := false
+	for i := 0; i < 40; i++ { // 40 * 3s = 120s
+		time.Sleep(3 * time.Second)
+		status, resultURL, cErr := checkGRSAI(grsaiKey, grsaiID, false)
+		if cErr != nil {
+			fmt.Printf("[IMAGE] GRSAI Poll Error: %v\n", cErr)
+			continue
 		}
-
-		presignedURL, pErr := generateR2PresignedURL(ctx, jeweaiBucket, refImageKey)
-		if pErr == nil {
-			// Submit Task
-			// Determine size based on p.Width/p.Height or p.AspectRatio (not in payload yet, calculated below)
-			aspectRatio := "1:1" // Default
-			if p.Width > 0 && p.Height > 0 {
-				aspectRatio = getAspectRatio(p.Width, p.Height)
-			}
-
-			grsaiID, sErr := submitGRSAIImage(grsaiKey, p.Prompt, presignedURL, aspectRatio)
-			if sErr == nil {
-				fmt.Printf("[IMAGE] GRSAI Submited: %s. Polling...\n", grsaiID)
-				// Poll for result (Synchronous block as per original design)
-				// Poll for up to 60 seconds?
-				for i := 0; i < 20; i++ { // 20 * 3s = 60s
-					time.Sleep(3 * time.Second)
-					status, resultURL, cErr := checkGRSAI(grsaiKey, grsaiID, false)
-					if cErr != nil {
-						fmt.Printf("[IMAGE] GRSAI Poll Error: %v\n", cErr)
-						continue // Retry poll
-					}
-					if status == "success" {
-						fmt.Printf("[IMAGE] GRSAI Success: %s\n", resultURL)
-						// Download image
-						dlPath := filepath.Join(tmpDir, fmt.Sprintf("%s_grsai_dl.png", p.TaskID))
-						if dErr := downloadFile(resultURL, dlPath); dErr == nil {
-							generatedImageData, err = os.ReadFile(dlPath)
-							os.Remove(dlPath)
-							if err == nil {
-								providerUsed = "grsai"
-							}
-						}
-						break
-					} else if status == "failed" {
-						fmt.Printf("[IMAGE] GRSAI Job Failed.\n")
-						break
-					}
+		if status == "success" {
+			fmt.Printf("[IMAGE] GRSAI Success: %s\n", resultURL)
+			dlPath := filepath.Join(tmpDir, fmt.Sprintf("%s_grsai_dl.png", p.TaskID))
+			if dErr := downloadFile(resultURL, dlPath); dErr == nil {
+				imageData, rErr := os.ReadFile(dlPath)
+				os.Remove(dlPath)
+				if rErr == nil {
+					generatedImageData = imageData
+					success = true
+					break
 				}
 			} else {
-				fmt.Printf("[IMAGE] GRSAI Submit Failed: %v\n", sErr)
+				fmt.Printf("[IMAGE] Download Error: %v\n", dErr)
 			}
-		} else {
-			fmt.Printf("[IMAGE] Presign Error: %v\n", pErr)
+		} else if status == "failed" {
+			fmt.Printf("[IMAGE] GRSAI Job Failed.\n")
+			break
 		}
 	}
 
-	// --- Fallback to Laozhang (Original) ---
-	if providerUsed == "none" {
-		if apiKey == "" {
-			fmt.Printf("[IMAGE] No AI_API_KEY found, switching to MOCK mode.\n")
-			// Create a dummy image file
-			dummyPath := filepath.Join(tmpDir, fmt.Sprintf("%s_generated.png", p.TaskID))
-			createDummyFile(dummyPath)
-			generatedImageData, err = os.ReadFile(dummyPath)
-			os.Remove(dummyPath)
-			if err != nil {
-				fmt.Printf("[IMAGE] Failed to read dummy image: %v\n", err)
-				updateTaskStatus(p.TaskID, "failed", nil)
-				return nil
-			}
-		} else {
-			fmt.Printf("[IMAGE] Sending real request to Laozhang AI Provider...\n")
-			generatedImageData, err = submitImageGenerateTask(apiKey, p.Prompt, localRefPath, p.Width, p.Height)
-			if err != nil {
-				fmt.Printf("[IMAGE] Failed to generate image: %v\n", err)
-				updateTaskStatus(p.TaskID, "failed", nil)
-				return nil
-			}
-			fmt.Printf("[IMAGE] Image generated successfully, size: %d bytes\n", len(generatedImageData))
-		}
+	if !success {
+		fmt.Printf("[IMAGE] Failed to generate image via GRSAI\n")
+		updateTaskStatus(p.TaskID, "failed", nil)
+		return nil
 	}
 
 	// 5. Save generated image to temp file
 	localGeneratedPath := filepath.Join(tmpDir, fmt.Sprintf("%s_generated.png", p.TaskID))
-	err = os.WriteFile(localGeneratedPath, generatedImageData, 0644)
-	if err != nil {
+	if err := os.WriteFile(localGeneratedPath, generatedImageData, 0644); err != nil {
 		fmt.Printf("[IMAGE] Failed to save generated image: %v\n", err)
 		updateTaskStatus(p.TaskID, "failed", nil)
 		return nil
@@ -343,8 +308,7 @@ func HandleImageGenerateTask(ctx context.Context, t *asynq.Task) error {
 
 	// 6. Generate cover for generated image (720p)
 	localGeneratedCoverPath := filepath.Join(tmpDir, fmt.Sprintf("%s_generated_cover.png", p.TaskID))
-	err = generateReferenceCover(localGeneratedPath, localGeneratedCoverPath)
-	if err != nil {
+	if err := generateReferenceCover(localGeneratedPath, localGeneratedCoverPath); err != nil {
 		fmt.Printf("[IMAGE] Generate cover warning: %v, using original image as cover\n", err)
 		// Use generated image itself as cover if cover generation fails
 		localGeneratedCoverPath = localGeneratedPath
@@ -358,7 +322,7 @@ func HandleImageGenerateTask(ctx context.Context, t *asynq.Task) error {
 	}
 
 	// 7. Upload generated image and cover to R2
-	jeweaiBucket := os.Getenv("R2_BUCKET")
+	jeweaiBucket = os.Getenv("R2_BUCKET")
 	if jeweaiBucket == "" {
 		jeweaiBucket = "jeweai"
 	}
@@ -370,8 +334,7 @@ func HandleImageGenerateTask(ctx context.Context, t *asynq.Task) error {
 
 	// Upload generated image to jeweai bucket (private)
 	imageKey := fmt.Sprintf("userid123456/%s.png", p.TaskID)
-	err = uploadToR2(ctx, localGeneratedPath, jeweaiBucket, imageKey)
-	if err != nil {
+	if err := uploadToR2(ctx, localGeneratedPath, jeweaiBucket, imageKey); err != nil {
 		fmt.Printf("[IMAGE] Upload generated image error: %v\n", err)
 		updateTaskStatus(p.TaskID, "failed", nil)
 		return nil
@@ -380,8 +343,7 @@ func HandleImageGenerateTask(ctx context.Context, t *asynq.Task) error {
 
 	// Upload generated image cover to covers bucket (public)
 	imageCoverKey := fmt.Sprintf("userid123456/%s_cover.png", p.TaskID)
-	err = uploadToR2(ctx, localGeneratedCoverPath, coversBucket, imageCoverKey)
-	if err != nil {
+	if err := uploadToR2(ctx, localGeneratedCoverPath, coversBucket, imageCoverKey); err != nil {
 		fmt.Printf("[IMAGE] Upload generated cover error: %v\n", err)
 		// Don't fail if cover upload fails
 	}
@@ -456,62 +418,39 @@ func HandleVideoGenerateTask(ctx context.Context, t *asynq.Task) error {
 		"coverPath": coverKey,
 	})
 
-	// 4. Call AI Video API
-	apiKey := os.Getenv("AI_API_KEY")
+	// 4. Call GRSAI Video API
 	grsaiKey := os.Getenv("GRSAI_KEY")
-	externalID := ""
-	provider := "laozhang" // default
-
-	// Try GRSAI
-	if grsaiKey != "" {
-		jeweaiBucket := os.Getenv("R2_BUCKET")
-		if jeweaiBucket == "" {
-			jeweaiBucket = "jeweai"
-		}
-
-		// Generate presigned URL for reference image
-		presignedURL, pErr := generateR2PresignedURL(ctx, jeweaiBucket, p.ImagePath)
-		if pErr == nil {
-			fmt.Printf("[VIDEO] Attempting GRSAI...\n")
-			// AspectRatio? default 9:16 if not specified
-			// Logic: p.Width / p.Height check? or just default.
-			// Currently user request mentioned "aspectRatio": "9:16" in their example.
-			// We can default to 9:16 or infer.
-			// Let's infer from width/height if available, else 9:16
-			ratio := "9:16"
-			if p.Width > p.Height {
-				ratio = "16:9"
-			}
-
-			grsaiID, sErr := submitGRSAIVideo(grsaiKey, p.Prompt, presignedURL, ratio)
-			if sErr == nil {
-				externalID = grsaiID
-				provider = "grsai"
-				fmt.Printf("[VIDEO] GRSAI Task Submitted. ID: %s\n", externalID)
-			} else {
-				fmt.Printf("[VIDEO] GRSAI Submit Failed: %v\n", sErr)
-			}
-		}
+	if grsaiKey == "" {
+		fmt.Printf("[VIDEO] GRSAI_KEY not found\n")
+		updateTaskStatus(p.TaskID, "failed", nil)
+		return nil
 	}
 
-	// Fallback to Laozhang if GRSAI failed or key missing
-	if externalID == "" {
-		if apiKey == "" {
-			fmt.Printf("[VIDEO] No AI_API_KEY found, switching to MOCK mode.\n")
-			externalID = fmt.Sprintf("mock_ext_%d", time.Now().UnixNano())
-		} else {
-			fmt.Printf("[VIDEO] Sending real request to Laozhang AI Provider...\n")
-			// Prepare Multipart Request
-			extID, err := submitVideoTask(apiKey, p.Prompt, localRefPath)
-			if err != nil {
-				fmt.Printf("[VIDEO] Failed to submit video task: %v\n", err)
-				updateTaskStatus(p.TaskID, "failed", nil)
-				return nil
-			}
-			externalID = extID
-			fmt.Printf("[VIDEO] Laozhang Task Submitted. ID: %s\n", externalID)
-		}
+	jeweaiBucket := os.Getenv("R2_BUCKET")
+	if jeweaiBucket == "" {
+		jeweaiBucket = "jeweai"
 	}
+
+	presignedURL, pErr := generateR2PresignedURL(ctx, jeweaiBucket, p.ImagePath)
+	if pErr != nil {
+		fmt.Printf("[VIDEO] Presign Error: %v\n", pErr)
+		updateTaskStatus(p.TaskID, "failed", nil)
+		return nil
+	}
+
+	fmt.Printf("[VIDEO] Attempting GRSAI...\n")
+	ratio := "9:16"
+	if p.Width > p.Height {
+		ratio = "16:9"
+	}
+
+	externalID, err := submitGRSAIVideo(grsaiKey, p.Prompt, presignedURL, ratio)
+	if err != nil {
+		fmt.Printf("[VIDEO] GRSAI Submit Failed: %v\n", err)
+		updateTaskStatus(p.TaskID, "failed", nil)
+		return nil
+	}
+	fmt.Printf("[VIDEO] GRSAI Task Submitted. ID: %s\n", externalID)
 
 	// 5. Enqueue Status Check
 	checkPayload, _ := json.Marshal(VideoCheckStatusPayload{
@@ -519,7 +458,6 @@ func HandleVideoGenerateTask(ctx context.Context, t *asynq.Task) error {
 		AssetID:    p.AssetID,
 		VideoID:    p.VideoID,
 		ExternalID: externalID,
-		Provider:   provider,
 		ImagePath:  p.ImagePath,
 		TryCount:   0,
 		UserID:     p.UserID,
@@ -531,7 +469,7 @@ func HandleVideoGenerateTask(ctx context.Context, t *asynq.Task) error {
 	defer client.Close()
 
 	// Start checking after 10 seconds
-	fmt.Printf("[VIDEO] Enqueueing Status Check for %s (Provider: %s)...\n", externalID, provider)
+	fmt.Printf("[VIDEO] Enqueueing Status Check for %s...\n", externalID)
 
 	taskInfo, err := client.Enqueue(asynq.NewTask(TaskTypeVideoCheckStatus, checkPayload), asynq.ProcessIn(10*time.Second))
 	if err != nil {
@@ -575,72 +513,10 @@ func generateReferenceCover(inputPath, outputPath string) error {
 	return cmd.Run()
 }
 
-// submitVideoTask sends the multipart request to the AI API
-func submitVideoTask(apiKey, prompt, imagePath string) (string, error) {
-	url := fmt.Sprintf("%s/videos", API_BASE)
-
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-
-	// Add fields based on JS implementation
-	_ = writer.WriteField("model", "sora_video2-15s")
-	_ = writer.WriteField("prompt", prompt)
-	_ = writer.WriteField("size", "720x1280") // Portrait? Or 1280x720? User said "720P small cover", API default usually landscape or portrait depending on req. User didn't specify ratio, keeping previous.
-
-	// Add file
-	file, err := os.Open(imagePath)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-
-	part, err := writer.CreateFormFile("input_reference", filepath.Base(imagePath))
-	if err != nil {
-		return "", err
-	}
-	_, err = io.Copy(part, file)
-	if err != nil {
-		return "", err
-	}
-
-	err = writer.Close()
-	if err != nil {
-		return "", err
-	}
-
-	req, err := http.NewRequest("POST", url, body)
-	if err != nil {
-		return "", err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	respBody, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("API Error %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	// Parse Response (Expects JSON with 'id')
-	var result struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return "", fmt.Errorf("json parse error: %v (Body: %s)", err, string(respBody))
-	}
-
-	if result.ID == "" {
-		return "", fmt.Errorf("no ID in response: %s", string(respBody))
-	}
-
-	return result.ID, nil
+func generateThumbnail(videoPath, thumbPath string) error {
+	// ffmpeg -i video.mp4 -ss 00:00:01.000 -vframes 1 thumb.png
+	cmd := exec.Command("ffmpeg", "-i", videoPath, "-ss", "00:00:01.000", "-vframes", "1", "-y", thumbPath)
+	return cmd.Run()
 }
 
 // HandleVideoCheckStatusTask 处理视频状态检查任务
@@ -654,41 +530,17 @@ func HandleVideoCheckStatusTask(ctx context.Context, t *asynq.Task) error {
 	fmt.Printf("=== [VIDEO] Checking Status: %s (Ext: %s, Try: %d) ===\n", p.TaskID, p.ExternalID, p.TryCount)
 
 	status := "pending"
-	apiKey := os.Getenv("AI_API_KEY")
 	grsaiKey := os.Getenv("GRSAI_KEY")
-
-	// Check Logic
-	if p.Provider == "grsai" {
-		if grsaiKey == "" {
-			fmt.Printf("[VIDEO] GRSAI Key missing during check!\n")
-			status = "failed"
-		} else {
-			s, _, err := checkGRSAI(grsaiKey, p.ExternalID, true)
-			if err != nil {
-				fmt.Printf("[VIDEO] GRSAI Check Error: %v\n", err)
-				status = "processing"
-			} else {
-				status = s
-			}
-		}
+	if grsaiKey == "" {
+		fmt.Printf("[VIDEO] GRSAI Key missing during check!\n")
+		status = "failed"
 	} else {
-		// Default / Laozhang / Mock
-		if apiKey == "" || (len(p.ExternalID) >= 5 && p.ExternalID[:5] == "mock_") {
-			// MOCK Logic
-			if p.TryCount < 2 {
-				status = "processing"
-			} else {
-				status = "success"
-			}
+		s, _, err := checkGRSAI(grsaiKey, p.ExternalID, true)
+		if err != nil {
+			fmt.Printf("[VIDEO] GRSAI Check Error: %v\n", err)
+			status = "processing"
 		} else {
-			// Real Check Logic
-			s, err := checkVideoStatus(apiKey, p.ExternalID)
-			if err != nil {
-				fmt.Printf("[VIDEO] Check Status Error: %v\n", err)
-				status = "processing" // Retry on error
-			} else {
-				status = s
-			}
+			status = s
 		}
 	}
 
@@ -713,35 +565,26 @@ func HandleVideoCheckStatusTask(ctx context.Context, t *asynq.Task) error {
 		tmpVideoPath := filepath.Join(tmpDir, p.VideoID+".mp4")
 
 		// Download Logic
-		if p.Provider == "grsai" {
-			// Get download URL again (or store it? CheckGRSAI returns it)
-			_, resultURL, err := checkGRSAI(grsaiKey, p.ExternalID, true)
-			if err == nil && resultURL != "" {
-				err = downloadFile(resultURL, tmpVideoPath)
-				if err != nil {
-					fmt.Printf("[VIDEO] GRSAI Download Error: %v\n", err)
-					createDummyVideo(tmpVideoPath) // Fallback
-				}
-			} else {
-				fmt.Printf("[VIDEO] GRSAI Get URL Error: %v\n", err)
-				createDummyVideo(tmpVideoPath)
-			}
-		} else if apiKey != "" && p.ExternalID[:5] != "mock_" {
-			// Laozhang Download
-			err := downloadVideoContent(apiKey, p.ExternalID, tmpVideoPath)
+		// Get download URL again (or store it? CheckGRSAI returns it)
+		_, resultURL, err := checkGRSAI(grsaiKey, p.ExternalID, true)
+		if err == nil && resultURL != "" {
+			err = downloadFile(resultURL, tmpVideoPath)
 			if err != nil {
-				fmt.Printf("[VIDEO] Content Download Error: %v\n", err)
-				createDummyVideo(tmpVideoPath)
+				fmt.Printf("[VIDEO] GRSAI Download Error: %v\n", err)
+				updateTaskStatus(p.TaskID, "failed", nil)
+				return nil
 			}
 		} else {
-			createDummyVideo(tmpVideoPath)
+			fmt.Printf("[VIDEO] GRSAI Get URL Error: %v\n", err)
+			updateTaskStatus(p.TaskID, "failed", nil)
+			return nil
 		}
 
 		defer os.Remove(tmpVideoPath)
 
 		// Generate Thumbnail (Video Cover) using FFMPEG
 		thumbPath := filepath.Join(tmpDir, p.VideoID+"_thumb.png")
-		err := generateThumbnail(tmpVideoPath, thumbPath)
+		err = generateThumbnail(tmpVideoPath, thumbPath)
 		if err != nil {
 			fmt.Printf("Thumbnail generation error: %v\n", err)
 			createDummyFile(thumbPath)
@@ -798,61 +641,8 @@ func HandleVideoCheckStatusTask(ctx context.Context, t *asynq.Task) error {
 	updateTaskStatus(p.TaskID, "failed", nil)
 	return nil
 }
-
-func checkVideoStatus(apiKey, videoID string) (string, error) {
-	url := fmt.Sprintf("%s/videos/%s", API_BASE, videoID)
-	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("status check failed: %d", resp.StatusCode)
-	}
-
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", err
-	}
-
-	// Assume generic "status" field
-	if s, ok := result["status"].(string); ok {
-		return s, nil
-	}
-	return "unknown", nil
-}
-
-func downloadVideoContent(apiKey, videoID, destPath string) error {
-	// Try downloading assuming explicit download URL or content endpoint
-	url := fmt.Sprintf("%s/videos/%s/content", API_BASE, videoID)
-
-	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-
-	client := &http.Client{Timeout: 120 * time.Second} // Allow time for download
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("download failed: %d", resp.StatusCode)
-	}
-
-	file, err := os.Create(destPath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	_, err = io.Copy(file, resp.Body)
-	return err
+func createDummyFile(path string) {
+	os.WriteFile(path, []byte("dummy file"), 0644)
 }
 
 func createDummyVideo(path string) {
@@ -863,129 +653,6 @@ func createDummyVideo(path string) {
 	}
 }
 
-func createDummyFile(path string) {
-	os.WriteFile(path, []byte("dummy file"), 0644)
-}
-
-func generateThumbnail(videoPath, thumbPath string) error {
-	// ffmpeg -i video.mp4 -ss 00:00:01.000 -vframes 1 thumb.png
-	cmd := exec.Command("ffmpeg", "-i", videoPath, "-ss", "00:00:01.000", "-vframes", "1", "-y", thumbPath)
-	return cmd.Run()
-}
-
-// submitImageGenerateTask 调用 Gemini API 生成图片（同步）
-func submitImageGenerateTask(apiKey, prompt, imagePath string, width, height int) ([]byte, error) {
-	url := fmt.Sprintf("%s/models/%s", API_BASE_BETA, IMAGE_GENERATION_MODEL)
-
-	// Prepare request payload
-	payload := map[string]interface{}{
-		"generationConfig": map[string]interface{}{
-			"responseModalities": []string{"IMAGE"},
-			"imageConfig": map[string]interface{}{
-				"aspectRatio": getAspectRatio(width, height),
-				"imageSize":   "4K", // 1K, 2K, 4K
-			},
-		},
-	}
-
-	// Build contents array
-	contents := map[string]interface{}{
-		"parts": []map[string]interface{}{
-			{"text": prompt},
-		},
-	}
-
-	// Add image if provided
-	if imagePath != "" && imagePath != "null" {
-		// Read and encode image to base64
-		imageData, err := os.ReadFile(imagePath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read image file: %v", err)
-		}
-
-		imageB64 := make([]byte, base64.StdEncoding.EncodedLen(len(imageData)))
-		base64.StdEncoding.Encode(imageB64, imageData)
-
-		// Determine mime type from file extension
-		mimeType := "image/jpeg"
-		ext := filepath.Ext(imagePath)
-		switch ext {
-		case ".png":
-			mimeType = "image/png"
-		case ".gif":
-			mimeType = "image/gif"
-		case ".webp":
-			mimeType = "image/webp"
-		}
-
-		contents["parts"] = append(contents["parts"].([]map[string]interface{}), map[string]interface{}{
-			"inline_data": map[string]interface{}{
-				"mime_type": mimeType,
-				"data":      string(imageB64),
-			},
-		})
-	}
-
-	payload["contents"] = []map[string]interface{}{contents}
-
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal payload: %v", err)
-	}
-
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %v", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 300 * time.Second} // Allow more time for image generation
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("API Error %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	// Parse Response
-	var result struct {
-		Candidates []struct {
-			Content struct {
-				Parts []struct {
-					InlineData struct {
-						Data string `json:"data"`
-					} `json:"inlineData"`
-				} `json:"parts"`
-			} `json:"content"`
-		} `json:"candidates"`
-	}
-
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("json parse error: %v (Body: %s)", err, string(respBody))
-	}
-
-	if len(result.Candidates) == 0 ||
-		len(result.Candidates[0].Content.Parts) == 0 ||
-		result.Candidates[0].Content.Parts[0].InlineData.Data == "" {
-		return nil, fmt.Errorf("no image data in response: %s", string(respBody))
-	}
-
-	// Decode base64 image data
-	imageData, err := base64.StdEncoding.DecodeString(result.Candidates[0].Content.Parts[0].InlineData.Data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode base64 image: %v", err)
-	}
-
-	return imageData, nil
-}
-
-// getAspectRatio 根据宽度和高度计算宽高比字符串
 func getAspectRatio(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return "1:1"

@@ -96,30 +96,6 @@ func main() {
 		return c.JSON(fiber.Map{"taskId": taskID, "videoId": videoID})
 	})
 
-	// 2.3 路由：测试上传文件到 R2
-	app.Get("/test/uploadFile", func(c *fiber.Ctx) error {
-		filePath := "./sync_test.jpg"
-		// 检查文件是否存在
-		if _, err := os.Stat(filePath); os.IsNotExist(err) {
-			return c.Status(404).SendString(fmt.Sprintf("File not found: %s", filePath))
-		}
-
-		ctx := context.TODO()
-		bucketName := os.Getenv("R2_PUBLIC_BUCKET")
-		if bucketName == "" {
-			bucketName = "covers" // Default or placeholder
-		}
-		// Fixed user ID: userid123456
-		objectKey := fmt.Sprintf("userid123456/%d_sync_test.jpg", time.Now().Unix())
-
-		err := uploadToR2(ctx, filePath, bucketName, objectKey)
-		if err != nil {
-			return c.Status(500).SendString(fmt.Sprintf("Upload failed: %v", err))
-		}
-
-		return c.SendString(fmt.Sprintf("File uploaded successfully to R2 bucket %s as %s", bucketName, objectKey))
-	})
-
 	fmt.Printf("=== [SYSTEM] Web server starting on :3000... ===\n")
 	if err := app.Listen(":3000"); err != nil {
 		fmt.Printf("Fiber error: %v\n", err)
@@ -132,7 +108,7 @@ func getS3Client(ctx context.Context) (*s3.Client, error) {
 	accessKeyID := os.Getenv("R2_ACCESS_KEY_ID")
 	secretAccessKey := os.Getenv("R2_SECRET_ACCESS_KEY")
 
-	fmt.Printf("=== [SYSTEM] R2 credentials: %s %s %s ===\n", accountID, accessKeyID, secretAccessKey)
+	// fmt.Printf("=== [SYSTEM] R2 credentials: %s %s %s ===\n", accountID, accessKeyID, secretAccessKey)
 	if accountID == "" || accessKeyID == "" || secretAccessKey == "" {
 		return nil, fmt.Errorf("missing R2 credentials")
 	}
