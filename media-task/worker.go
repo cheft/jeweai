@@ -998,7 +998,13 @@ func getAspectRatio(width, height int) string {
 
 // downloadFile downloads a file from a URL to a local destination
 func downloadFile(url string, destPath string) error {
-	resp, err := http.Get(url)
+	fmt.Printf("[DEBUG] Downloading from: %s\n", url)
+	req, _ := http.NewRequest("GET", url, nil)
+	// Add user-agent just in case
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -1014,8 +1020,20 @@ func downloadFile(url string, destPath string) error {
 	}
 	defer out.Close()
 
-	_, err = io.Copy(out, resp.Body)
-	return err
+	n, err := io.Copy(out, resp.Body)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("[DEBUG] Downloaded %d bytes to %s\n", n, destPath)
+
+	// Debug small files
+	if n < 100 {
+		content, _ := os.ReadFile(destPath)
+		fmt.Printf("[DEBUG] Small file content: %s\n", string(content))
+	}
+
+	return nil
 }
 
 // generateR2PresignedURL generates a presigned URL for an R2 object
@@ -1041,17 +1059,31 @@ func generateR2PresignedURL(ctx context.Context, bucket, key string) (string, er
 
 // submitGRSAIImage submits an image generation task to GRSAI
 func submitGRSAIImage(apiKey, prompt, imageUrl, aspectRatio string) (string, error) {
-	// API Endpoint for GRSAI Image Generation (Placeholder)
 	baseURL := os.Getenv("GRSAI_BASE_URL")
 	if baseURL == "" {
-		baseURL = "https://api.grsai.com/v1" // Fallback
+		baseURL = GRSAI_API_BASE
 	}
-	url := fmt.Sprintf("%s/image/generations", baseURL)
+	url := fmt.Sprintf("%s/draw/completions", baseURL)
+	fmt.Printf("[DEBUG] Attempting POST to: %s\n", url)
+
+	// User spec: size="1:1" (fixed?) or depends on aspect ratio. Request says "size": "1:1".
+	// Implementation: using "1:1" as per spec example, or mapping aspect ratio if needed.
+	// Since payload shows "size": "1:1", we'll default to that or mapping.
+	// User said "Aspect Ratio Options... 1:1, 3:2...".
+	// Let's assume passed aspectRatio string (e.g. "1:1") IS the size format.
+	size := aspectRatio
+	if size == "" {
+		size = "1:1"
+	}
 
 	payload := map[string]interface{}{
+		"model":        "sora-image",
 		"prompt":       prompt,
-		"image_url":    imageUrl,
-		"aspect_ratio": aspectRatio,
+		"size":         size,
+		"variants":     1,
+		"urls":         []string{imageUrl}, // Array
+		"webHook":      "-1",
+		"shutProgress": false,
 	}
 
 	jsonData, _ := json.Marshal(payload)
@@ -1075,36 +1107,45 @@ func submitGRSAIImage(apiKey, prompt, imageUrl, aspectRatio string) (string, err
 		return "", fmt.Errorf("GRSAI Error %d: %s", resp.StatusCode, string(body))
 	}
 
+	// Parse Response
+	// Response structure: { "code": 0, "data": { "id": "..." }, "msg": "success" }
 	var result struct {
-		ID     string `json:"id"`
-		TaskID string `json:"task_id"`
+		Code int `json:"code"`
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+		Msg string `json:"msg"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
-		return "", err
-	}
-	if result.ID != "" {
-		return result.ID, nil
-	}
-	if result.TaskID != "" {
-		return result.TaskID, nil
+		return "", fmt.Errorf("json unmarshal: %v (Body: %s)", err, string(body))
 	}
 
-	return "", fmt.Errorf("no id in response: %s", string(body))
+	if result.Data.ID == "" {
+		// Fallback: check if error is in data? or just print body
+		return "", fmt.Errorf("no id in response data: %s", string(body))
+	}
+
+	return result.Data.ID, nil
 }
 
 // submitGRSAIVideo submits a video generation task to GRSAI
 func submitGRSAIVideo(apiKey, prompt, imageUrl, aspectRatio string) (string, error) {
 	baseURL := os.Getenv("GRSAI_BASE_URL")
 	if baseURL == "" {
-		baseURL = "https://api.grsai.com/v1"
+		baseURL = GRSAI_API_BASE
 	}
-	url := fmt.Sprintf("%s/video/generations", baseURL)
+	url := fmt.Sprintf("%s/video/sora-video", baseURL)
+	fmt.Printf("[DEBUG] Attempting POST to: %s\n", url)
 
 	payload := map[string]interface{}{
+		"model":        "sora-2",
 		"prompt":       prompt,
-		"image_url":    imageUrl,
-		"aspect_ratio": aspectRatio,
-		"model":        "video-01",
+		"url":          imageUrl, // Singular
+		"aspectRatio":  aspectRatio,
+		"duration":     15,
+		"size":         "small",
+		"webHook":      "-1",
+		"shutProgress": false,
 	}
 
 	jsonData, _ := json.Marshal(payload)
@@ -1128,39 +1169,44 @@ func submitGRSAIVideo(apiKey, prompt, imageUrl, aspectRatio string) (string, err
 		return "", fmt.Errorf("GRSAI Video Error %d: %s", resp.StatusCode, string(body))
 	}
 
+	// Parse Response
 	var result struct {
-		ID     string `json:"id"`
-		TaskID string `json:"task_id"`
+		Code int `json:"code"`
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+		Msg string `json:"msg"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
-		return "", err
+		return "", fmt.Errorf("json unmarshal: %v (Body: %s)", err, string(body))
 	}
 
-	if result.ID != "" {
-		return result.ID, nil
-	}
-	if result.TaskID != "" {
-		return result.TaskID, nil
+	if result.Data.ID == "" {
+		return "", fmt.Errorf("no id in response data: %s", string(body))
 	}
 
-	return "", fmt.Errorf("no id in response")
+	return result.Data.ID, nil
 }
 
 // checkGRSAI checks the status of a GRSAI task
 func checkGRSAI(apiKey, taskID string, looksLikeVideo bool) (string, string, error) {
 	baseURL := os.Getenv("GRSAI_BASE_URL")
 	if baseURL == "" {
-		baseURL = "https://api.grsai.com/v1"
+		baseURL = GRSAI_API_BASE
 	}
 
-	url := fmt.Sprintf("%s/tasks/%s", baseURL, taskID)
+	url := fmt.Sprintf("%s/draw/result", baseURL) // Same endpoint for both
 
-	req, err := http.NewRequest("GET", url, nil)
+	payload := map[string]string{"id": taskID}
+	jsonData, _ := json.Marshal(payload)
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", "", err
 	}
 
 	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
@@ -1170,47 +1216,65 @@ func checkGRSAI(apiKey, taskID string, looksLikeVideo bool) (string, string, err
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		// handle 404?
 		return "", "", fmt.Errorf("status check failed: %d", resp.StatusCode)
 	}
 
 	body, _ := io.ReadAll(resp.Body)
+
+	// Response Structure:
+	// User provided: { "id": "...", "results": [...], "status": "...", ... }
 	var result struct {
-		Status string `json:"status"` // pending, processing, success, failed
-		Result struct {
-			URL      string `json:"url"`
-			VideoURL string `json:"video_url"`
-			ImageURL string `json:"image_url"`
-		} `json:"result"`
-		Output string `json:"output"` // Sometimes direct URL
+		ID            string `json:"id"`
+		Status        string `json:"status"`
+		FailureReason string `json:"failure_reason"`
+		Error         string `json:"error"`
+		Results       []struct {
+			URL string `json:"url"`
+		} `json:"results"`
+
+		// Legacy/Alternative structure support fields (optional)
+		Code int `json:"code"`
+		Data *struct {
+			ID      string `json:"id"`
+			Status  string `json:"status"`
+			Results []struct {
+				URL string `json:"url"`
+			} `json:"results"`
+			FailureReason string `json:"failure_reason"`
+			Error         string `json:"error"`
+		} `json:"data"`
 	}
 
 	if err := json.Unmarshal(body, &result); err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("json parse error: %v", err)
+	}
+
+	// Determine status and results from flat vs nested structure
+	status := result.Status
+	results := result.Results
+	failureReason := result.FailureReason
+	errorMsg := result.Error
+
+	if result.Data != nil {
+		status = result.Data.Status
+		results = result.Data.Results
+		failureReason = result.Data.FailureReason
+		errorMsg = result.Data.Error
+	}
+
+	finalStatus := "processing"
+	// Map status
+	if status == "succeeded" || status == "success" || status == "completed" {
+		finalStatus = "success"
+	} else if status == "failed" || status == "error" {
+		finalStatus = "failed"
 	}
 
 	fileURL := ""
-	if result.Result.URL != "" {
-		fileURL = result.Result.URL
-	}
-	if result.Result.VideoURL != "" {
-		fileURL = result.Result.VideoURL
-	}
-	if result.Result.ImageURL != "" {
-		fileURL = result.Result.ImageURL
-	}
-	if result.Output != "" && fileURL == "" {
-		fileURL = result.Output
-	}
-
-	// Map status
-	s := result.Status
-	finalStatus := "processing"
-
-	if s == "succeeded" || s == "success" || s == "completed" {
-		finalStatus = "success"
-	} else if s == "failed" || s == "error" {
-		finalStatus = "failed"
+	if finalStatus == "success" && len(results) > 0 {
+		fileURL = results[0].URL
+	} else if finalStatus == "failed" {
+		return "failed", "", fmt.Errorf("task failed: %s %s", failureReason, errorMsg)
 	}
 
 	return finalStatus, fileURL, nil
