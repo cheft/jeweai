@@ -22,6 +22,7 @@
 	let fileInput: HTMLInputElement;
 	let selectedStyle: { id: string; name: string; thumbnail: any } | null = null;
 	let isGenerating = false;
+	let isPolishing = false;
 	// let orientation: 'landscape' | 'portrait' = 'portrait';
 	let imageAspectRatio = '1:1';
 	let videoAspectRatio = '9:16';
@@ -106,6 +107,26 @@
 			alert('生成失败，请检查后端服务是否正常运行');
 		} finally {
 			isGenerating = false;
+		}
+	}
+
+	async function handlePolish() {
+		if (!prompt.trim()) {
+			alert('请先输入提示词再进行润色');
+			return;
+		}
+
+		isPolishing = true;
+		try {
+			const polished = await client.task.polish({ prompt });
+			if (polished) {
+				prompt = polished;
+			}
+		} catch (error) {
+			console.error('Polish Error:', error);
+			alert('润色失败，请稍后重试');
+		} finally {
+			isPolishing = false;
 		}
 	}
 
@@ -337,6 +358,7 @@
 										uploadedImage = null;
 										if (fileInput) fileInput.value = '';
 									}}
+									aria-label="移除参考图片"
 								>
 									<svg
 										xmlns="http://www.w3.org/2000/svg"
@@ -374,6 +396,7 @@
 							<button
 								class="flex h-6 w-6 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-white/10 hover:text-white"
 								on:click={() => (selectedStyle = null)}
+								aria-label="移除风格"
 							>
 								<svg
 									xmlns="http://www.w3.org/2000/svg"
@@ -480,6 +503,7 @@
 								? 'text-white shadow-[0_0_15px_rgba(255,255,255,0.1)]'
 								: ''}"
 							on:click={() => (isStyleSelectorOpen = !isStyleSelectorOpen)}
+							aria-label="打开画风列表"
 						>
 							<svg
 								xmlns="http://www.w3.org/2000/svg"
@@ -696,10 +720,63 @@
 					</div>
 
 					<div class="flex items-center space-x-6">
+						<!-- AI Polish Button -->
+						<button
+							class="group flex h-12 items-center space-x-2 rounded-full border border-seko-accent/30 bg-seko-accent/5 px-6 text-seko-accent transition-all duration-300 hover:scale-105 hover:bg-seko-accent hover:text-black hover:shadow-[0_0_20px_rgba(163,230,53,0.3)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+							on:click={handlePolish}
+							disabled={isPolishing || isGenerating}
+						>
+							{#if isPolishing}
+								<svg
+									class="h-5 w-5 animate-spin"
+									xmlns="http://www.w3.org/2000/svg"
+									fill="none"
+									viewBox="0 0 24 24"
+								>
+									<circle
+										class="opacity-25"
+										cx="12"
+										cy="12"
+										r="10"
+										stroke="currentColor"
+										stroke-width="4"
+									></circle>
+									<path
+										class="opacity-75"
+										fill="currentColor"
+										d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+									></path>
+								</svg>
+								<span class="text-sm font-bold">润色中...</span>
+							{:else}
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									width="20"
+									height="20"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2.5"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									class="lucide lucide-wand-2 transition-transform duration-500 group-hover:rotate-12"
+									><path d="m2 21 5-5" /><path d="M7 16 16 7" /><path d="m15 15 6 6" /><path
+										d="m11 9 3 3"
+									/><path d="M21 9V5" /><path d="M21 5H17" /><path d="M14 4.8V2" /><path
+										d="M14 2h-4"
+									/><path d="M3 10h4" /><path d="M7 10v4" /><path d="m7 3 3 3" /><path
+										d="m3 7 3-3"
+									/></svg
+								>
+								<span class="text-sm font-bold">润色</span>
+							{/if}
+						</button>
+
+						<!-- Generate Button -->
 						<button
 							class="flex h-12 w-12 items-center justify-center rounded-full bg-gray-800 text-gray-400 shadow-lg transition-all duration-300 hover:scale-110 hover:bg-seko-accent hover:text-black hover:shadow-seko-accent/30 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
 							on:click={handleGenerate}
-							disabled={isGenerating}
+							disabled={isGenerating || isPolishing}
 						>
 							{#if isGenerating}
 								<svg

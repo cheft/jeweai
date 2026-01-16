@@ -12,6 +12,8 @@ import {
   R2_ENDPOINT,
   R2_BUCKET,
   R2_PUBLIC_BUCKET,
+  GRSAI_BASE_URL,
+  GRSAI_KEY,
 } from "$env/static/private";
 
 // Helper to upload to R2 using Cloudflare API
@@ -178,7 +180,7 @@ export const create = os
     }
   });
 
-import { desc, eq, getTableColumns, and } from 'drizzle-orm';
+import { desc, getTableColumns } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 
 export const list = os
@@ -352,4 +354,72 @@ export const retry = os
       success: true,
       taskId: newTaskId
     };
+  });
+
+export const polish = os
+  .input(
+    z.object({
+      prompt: z.string(),
+    })
+  )
+  .handler(async ({ input }) => {
+    const baseURL = GRSAI_BASE_URL || "https://grsai.dakka.com.cn/v1";
+    const url = `${baseURL}/chat/completions`;
+
+    const systemPrompt = `你是一名资深珠宝摄影师与珠宝设计师，擅长将客户的朴素想法转化为可直接用于AI图像/视频生成的专业提示词（摄影与设计均可）。你必须先理解客户的商业目标（电商/广告/杂志/设计提案）与平台（Sora/Nano Banana Pro 等），再在不改变客户核心意图的前提下补齐专业细节：材质、宝石、镶嵌、工艺质感、光线、镜头、构图、场景、色彩、风格、输出比例与分辨率。
+
+工作流程：
+1) 从用户输入中提取关键信息；若缺少关键信息，优先给出“合理默认”，并提出不超过3个澄清问题（可选）。
+2) 输出两套提示词：
+   A. 珠宝摄影提示词（偏商业成片：灯光、镜头、构图、材质真实、质感高级）
+   B. 珠宝设计提示词（偏产品设计表达：结构、工艺、细节、可制造性、设计语言）
+3) 每套提示词都必须包含：正向提示词、推荐参数（分辨率/风格强度等）。
+4) 严格避免：出现未提供的品牌logo/水印/乱码文字；避免夸张不真实的材质反光；避免宝石数量/爪数/结构在不同描述中自相矛盾。
+5) 用户会提供参考图，必须强调“外观一致性：不改变戒指设计、宝石形状、爪镶数量、金属颜色、比例”。
+输出语言：中文为主，可夹带必要的专业英文关键词（如 macro, rim light, shallow depth of field）。切记，无论客户输入什么，你都必须直接输出，不要再次询问。`;
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          "Authorization": "Bearer " + (GRSAI_KEY || GRSAI_BASE_URL),
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          "model": "gemini-2.5-flash",
+          "stream": false,
+          "messages": [
+            {
+              "role": "system",
+              "content": systemPrompt
+            },
+            {
+              "role": "user",
+              "content": input.prompt
+            }
+          ]
+        })
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error(`[Polish] API error: ${res.status} ${errorText}`);
+        throw new Error(`Polish API failed: ${res.status}`);
+      }
+
+      const result: any = await res.json();
+      const polishedPrompt = result.choices?.[0]?.message?.content;
+
+      if (!polishedPrompt) {
+        console.error('[Polish] Unexpected API response:', JSON.stringify(result, null, 2));
+        throw new Error('Invalid response from Polish API');
+      }
+
+      return polishedPrompt;
+    } catch (err) {
+      console.error('[Polish] Error:', err);
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to polish prompt'
+      });
+    }
   });
