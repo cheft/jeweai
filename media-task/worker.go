@@ -32,7 +32,6 @@ const (
 )
 
 // Helper to update task status in SvelteKit
-// Updated payload to include specific keys for new workflow
 func updateTaskStatus(taskId, status string, data map[string]interface{}) {
 	url := "http://localhost:5173/api/task/update" // Node.js webhook
 	payload := map[string]interface{}{
@@ -66,14 +65,15 @@ func updateTaskStatus(taskId, status string, data map[string]interface{}) {
 // --------------- 任务有效载荷 ---------------
 
 type ImageGeneratePayload struct {
-	TaskID    string `json:"TaskID"`
-	AssetID   string `json:"AssetID"`
-	ImagePath string `json:"ImagePath"`
-	Width     int    `json:"Width"`
-	Height    int    `json:"Height"`
-	ImgName   string `json:"ImgName"`
-	Prompt    string `json:"Prompt"`
-	StyleID   string `json:"StyleID"`
+	TaskID     string `json:"TaskID"`
+	AssetID    string `json:"AssetID"`
+	ImagePath  string `json:"ImagePath"`
+	Width      int    `json:"Width"`
+	Height     int    `json:"Height"`
+	ImgName    string `json:"ImgName"`
+	Prompt     string `json:"Prompt"`
+	StyleID    string `json:"StyleID"`
+	ExternalID string `json:"ExternalID"` // For retries
 }
 
 type ImageCheckStatusPayload struct {
@@ -87,15 +87,16 @@ type ImageCheckStatusPayload struct {
 }
 
 type VideoGeneratePayload struct {
-	TaskID    string `json:"TaskID"`
-	AssetID   string `json:"AssetID"`
-	VideoID   string `json:"VideoID"` // Internal ID
-	Prompt    string `json:"Prompt"`
-	ImagePath string `json:"ImagePath"`
-	StyleID   string `json:"StyleID"`
-	UserID    string `json:"UserID"`
-	Width     int    `json:"Width"`
-	Height    int    `json:"Height"`
+	TaskID     string `json:"TaskID"`
+	AssetID    string `json:"AssetID"`
+	VideoID    string `json:"VideoID"` // Internal ID
+	Prompt     string `json:"Prompt"`
+	ImagePath  string `json:"ImagePath"`
+	StyleID    string `json:"StyleID"`
+	UserID     string `json:"UserID"`
+	Width      int    `json:"Width"`
+	Height     int    `json:"Height"`
+	ExternalID string `json:"ExternalID"` // For retries
 }
 
 type VideoCheckStatusPayload struct {
@@ -265,14 +266,25 @@ func HandleImageGenerateTask(ctx context.Context, t *asynq.Task) error {
 		aspectRatio = getAspectRatio(p.Width, p.Height)
 	}
 
-	grsaiID, sErr := submitGRSAIImage(grsaiKey, p.Prompt, presignedURL, aspectRatio)
-	if sErr != nil {
-		fmt.Printf("[IMAGE] GRSAI Submit Failed: %v\n", sErr)
-		updateTaskStatus(p.TaskID, "failed", nil)
-		return nil
-	}
+	grsaiID := p.ExternalID
+	if grsaiID == "" {
+		fmt.Printf("[IMAGE] Attempting GRSAI...\n")
+		var sErr error
+		grsaiID, sErr = submitGRSAIImage(grsaiKey, p.Prompt, presignedURL, aspectRatio)
+		if sErr != nil {
+			fmt.Printf("[IMAGE] GRSAI Submit Failed: %v\n", sErr)
+			updateTaskStatus(p.TaskID, "failed", nil)
+			return nil
+		}
+		fmt.Printf("[IMAGE] GRSAI Submitted: %s. Enqueueing Poll...\n", grsaiID)
 
-	fmt.Printf("[IMAGE] GRSAI Submitted: %s. Enqueueing Poll...\n", grsaiID)
+		// Notify "generating" with ExternalID
+		updateTaskStatus(p.TaskID, "generating", map[string]interface{}{
+			"externalId": grsaiID,
+		})
+	} else {
+		fmt.Printf("[IMAGE] Skipping GRSAI submission, using existing ID: %s\n", grsaiID)
+	}
 
 	// 5. Enqueue Status Check
 	checkPayload, _ := json.Marshal(ImageCheckStatusPayload{
@@ -313,7 +325,7 @@ func HandleImageCheckStatusTask(ctx context.Context, t *asynq.Task) error {
 		return nil
 	}
 
-	status, resultURL, err := checkGRSAI(grsaiKey, p.ExternalID, false)
+	status, resultURL, failureReason, errorMsg, err := checkGRSAI(grsaiKey, p.ExternalID, false)
 	if err != nil {
 		fmt.Printf("[IMAGE] GRSAI Check Error: %v\n", err)
 		// On network error or similar, we might want to retry
@@ -340,8 +352,11 @@ func HandleImageCheckStatusTask(ctx context.Context, t *asynq.Task) error {
 		return processImageResult(ctx, p, resultURL)
 	}
 
-	fmt.Printf("[IMAGE] Task Failed or Error: %s\n", status)
-	updateTaskStatus(p.TaskID, "failed", nil)
+	fmt.Printf("[IMAGE] Task Failed or Error: %s (Reason: %s, Error: %s)\n", status, failureReason, errorMsg)
+	updateTaskStatus(p.TaskID, "failed", map[string]interface{}{
+		"failureReason": failureReason,
+		"errorMessage":  errorMsg,
+	})
 	return nil
 }
 
@@ -353,7 +368,10 @@ func processImageResult(ctx context.Context, p ImageCheckStatusPayload, resultUR
 	dlPath := filepath.Join(tmpDir, fmt.Sprintf("%s_generated.png", p.TaskID))
 	if err := downloadFile(resultURL, dlPath); err != nil {
 		fmt.Printf("[IMAGE] Download Error: %v\n", err)
-		updateTaskStatus(p.TaskID, "failed", nil)
+		updateTaskStatus(p.TaskID, "failed", map[string]interface{}{
+			"failureReason": "error",
+			"errorMessage":  "system error",
+		})
 		return nil
 	}
 	defer os.Remove(dlPath)
@@ -380,7 +398,10 @@ func processImageResult(ctx context.Context, p ImageCheckStatusPayload, resultUR
 	imageKey := fmt.Sprintf("userid123456/%s.png", p.TaskID)
 	if err := uploadToR2(ctx, dlPath, jeweaiBucket, imageKey); err != nil {
 		fmt.Printf("[IMAGE] Upload generated image error: %v\n", err)
-		updateTaskStatus(p.TaskID, "failed", nil)
+		updateTaskStatus(p.TaskID, "failed", map[string]interface{}{
+			"failureReason": "error",
+			"errorMessage":  "system error",
+		})
 		return nil
 	}
 
@@ -485,13 +506,26 @@ func HandleVideoGenerateTask(ctx context.Context, t *asynq.Task) error {
 		ratio = "16:9"
 	}
 
-	externalID, err := submitGRSAIVideo(grsaiKey, p.Prompt, presignedURL, ratio)
-	if err != nil {
-		fmt.Printf("[VIDEO] GRSAI Submit Failed: %v\n", err)
-		updateTaskStatus(p.TaskID, "failed", nil)
-		return nil
+	externalID := p.ExternalID
+	if externalID == "" {
+		fmt.Printf("[VIDEO] Attempting GRSAI...\n")
+		var sErr error
+		externalID, sErr = submitGRSAIVideo(grsaiKey, p.Prompt, presignedURL, ratio)
+		if sErr != nil {
+			fmt.Printf("[VIDEO] GRSAI Submit Failed: %v\n", sErr)
+			updateTaskStatus(p.TaskID, "failed", nil)
+			return nil
+		}
+		fmt.Printf("[VIDEO] GRSAI Task Submitted. ID: %s\n", externalID)
+
+		// Notify "generating" with ExternalID
+		updateTaskStatus(p.TaskID, "generating", map[string]interface{}{
+			"coverPath":  coverKey,
+			"externalId": externalID,
+		})
+	} else {
+		fmt.Printf("[VIDEO] Skipping GRSAI submission, using existing ID: %s\n", externalID)
 	}
-	fmt.Printf("[VIDEO] GRSAI Task Submitted. ID: %s\n", externalID)
 
 	// 5. Enqueue Status Check
 	checkPayload, _ := json.Marshal(VideoCheckStatusPayload{
@@ -576,7 +610,7 @@ func HandleVideoCheckStatusTask(ctx context.Context, t *asynq.Task) error {
 		return nil
 	}
 
-	status, resultURL, err := checkGRSAI(grsaiKey, p.ExternalID, true)
+	status, resultURL, failureReason, errorMsg, err := checkGRSAI(grsaiKey, p.ExternalID, true)
 	if err != nil {
 		fmt.Printf("[VIDEO] GRSAI Check Error: %v\n", err)
 		status = "processing" // Assume processing if there's an error checking status
@@ -602,8 +636,11 @@ func HandleVideoCheckStatusTask(ctx context.Context, t *asynq.Task) error {
 		return processVideoResult(ctx, p, resultURL)
 	}
 
-	fmt.Printf("[VIDEO] Task Failed or Error: %s\n", status)
-	updateTaskStatus(p.TaskID, "failed", nil)
+	fmt.Printf("[VIDEO] Task Failed or Error: %s (Reason: %s, Error: %s)\n", status, failureReason, errorMsg)
+	updateTaskStatus(p.TaskID, "failed", map[string]interface{}{
+		"failureReason": failureReason,
+		"errorMessage":  errorMsg,
+	})
 	return nil
 }
 
@@ -615,7 +652,10 @@ func processVideoResult(ctx context.Context, p VideoCheckStatusPayload, resultUR
 
 	if err := downloadFile(resultURL, tmpVideoPath); err != nil {
 		fmt.Printf("[VIDEO] Download Error: %v\n", err)
-		updateTaskStatus(p.TaskID, "failed", nil)
+		updateTaskStatus(p.TaskID, "failed", map[string]interface{}{
+			"failureReason": "error",
+			"errorMessage":  "system error",
+		})
 		return nil
 	}
 	defer os.Remove(tmpVideoPath)
@@ -644,7 +684,10 @@ func processVideoResult(ctx context.Context, p VideoCheckStatusPayload, resultUR
 	// Upload Video (Private)
 	if err := uploadToR2(ctx, tmpVideoPath, jeweaiBucket, videoKey); err != nil {
 		fmt.Printf("[VIDEO] Upload video error: %v\n", err)
-		updateTaskStatus(p.TaskID, "failed", nil)
+		updateTaskStatus(p.TaskID, "failed", map[string]interface{}{
+			"failureReason": "error",
+			"errorMessage":  "system error",
+		})
 		return nil
 	}
 
@@ -889,7 +932,7 @@ func submitGRSAIVideo(apiKey, prompt, imageUrl, aspectRatio string) (string, err
 }
 
 // checkGRSAI checks the status of a GRSAI task
-func checkGRSAI(apiKey, taskID string, looksLikeVideo bool) (string, string, error) {
+func checkGRSAI(apiKey, taskID string, looksLikeVideo bool) (status string, resultURL string, failureReason string, errorMsg string, err error) {
 	baseURL := os.Getenv("GRSAI_BASE_URL")
 	if baseURL == "" {
 		baseURL = GRSAI_API_BASE
@@ -902,7 +945,7 @@ func checkGRSAI(apiKey, taskID string, looksLikeVideo bool) (string, string, err
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return "", "", err
+		return "", "", "", "", err
 	}
 
 	req.Header.Set("Authorization", "Bearer "+apiKey)
@@ -911,18 +954,17 @@ func checkGRSAI(apiKey, taskID string, looksLikeVideo bool) (string, string, err
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", "", err
+		return "", "", "", "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return "", "", fmt.Errorf("status check failed: %d", resp.StatusCode)
+		return "", "", "", "", fmt.Errorf("status check failed: %d", resp.StatusCode)
 	}
 
 	body, _ := io.ReadAll(resp.Body)
 
 	// Response Structure:
-	// User provided: { "id": "...", "results": [...], "status": "...", ... }
 	var result struct {
 		ID            string `json:"id"`
 		Status        string `json:"status"`
@@ -946,17 +988,17 @@ func checkGRSAI(apiKey, taskID string, looksLikeVideo bool) (string, string, err
 	}
 
 	if err := json.Unmarshal(body, &result); err != nil {
-		return "", "", fmt.Errorf("json parse error: %v", err)
+		return "", "", "", "", fmt.Errorf("json parse error: %v", err)
 	}
 
 	// Determine status and results from flat vs nested structure
-	status := result.Status
+	rawStatus := result.Status
 	results := result.Results
-	failureReason := result.FailureReason
-	errorMsg := result.Error
+	failureReason = result.FailureReason
+	errorMsg = result.Error
 
 	if result.Data != nil {
-		status = result.Data.Status
+		rawStatus = result.Data.Status
 		results = result.Data.Results
 		failureReason = result.Data.FailureReason
 		errorMsg = result.Data.Error
@@ -965,8 +1007,8 @@ func checkGRSAI(apiKey, taskID string, looksLikeVideo bool) (string, string, err
 	finalStatus := "processing"
 	// Map status
 	statusLower := ""
-	if status != "" {
-		statusLower = status
+	if rawStatus != "" {
+		statusLower = rawStatus
 	}
 
 	if statusLower == "succeeded" || statusLower == "success" || statusLower == "completed" || statusLower == "finish" {
@@ -978,9 +1020,7 @@ func checkGRSAI(apiKey, taskID string, looksLikeVideo bool) (string, string, err
 	fileURL := ""
 	if finalStatus == "success" && len(results) > 0 {
 		fileURL = results[0].URL
-	} else if finalStatus == "failed" {
-		return "failed", "", fmt.Errorf("task failed: %s %s", failureReason, errorMsg)
 	}
 
-	return finalStatus, fileURL, nil
+	return finalStatus, fileURL, failureReason, errorMsg, nil
 }

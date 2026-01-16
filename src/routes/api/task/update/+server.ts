@@ -130,13 +130,21 @@ export const POST: RequestHandler = async ({ request }) => {
     if (status === 'execute') dbStatus = 'generating';
     if (status === 'complete') dbStatus = 'completed';
 
+    const { externalId, failureReason, errorMessage } = payload;
+
     const updateData: any = {
       status: dbStatus,
       updatedAt: new Date(),
     };
 
-    // Update metadata/urls in task just in case (though resultAssetId is preferred)
-    if (resultUrl) updateData.metadata = { ...(task.metadata as object || {}), resultUrl };
+    // Update metadata/urls in task
+    const newMetadata: any = { ...(task.metadata as object || {}) };
+    if (resultUrl) newMetadata.resultUrl = resultUrl;
+    if (externalId) newMetadata.externalId = externalId;
+    if (failureReason) newMetadata.failureReason = failureReason;
+    if (errorMessage) newMetadata.errorMessage = errorMessage;
+
+    updateData.metadata = newMetadata;
 
     await db.update(tasks)
       .set(updateData)

@@ -218,17 +218,25 @@
 								<div
 									class="absolute inset-0 flex flex-col items-center justify-center bg-red-900/20 p-6 text-center backdrop-blur-sm"
 								>
-									<div class="mb-4 font-bold text-red-400">Generation Failed</div>
-									<button
-										onclick={(e) => {
-											e.preventDefault();
-											handleRetry(video.id);
-										}}
-										class="flex items-center gap-2 rounded-full border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-200 transition-colors hover:bg-red-500/20"
-									>
-										<RefreshCw class="h-4 w-4" />
-										Retry Check
-									</button>
+									<div class="mb-2 font-bold text-red-400">Generation Failed</div>
+									{#if video.metadata?.errorMessage}
+										<div class="mb-4 line-clamp-3 px-2 text-xs text-red-300/80">
+											{video.metadata.errorMessage}
+										</div>
+									{/if}
+
+									{#if video.metadata?.failureReason === 'error' && video.metadata?.errorMessage === 'system error'}
+										<button
+											onclick={(e) => {
+												e.preventDefault();
+												handleRetry(video.id);
+											}}
+											class="flex items-center gap-2 rounded-full border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-200 transition-colors hover:bg-red-500/20"
+										>
+											<RefreshCw class="h-4 w-4" />
+											Retry Check
+										</button>
+									{/if}
 								</div>
 							{/if}
 						</a>
