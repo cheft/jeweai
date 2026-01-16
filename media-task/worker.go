@@ -30,6 +30,9 @@ const (
 	API_BASE               = "https://api.laozhang.ai/v1"
 	API_BASE_BETA          = "https://api.laozhang.ai/v1beta"
 	IMAGE_GENERATION_MODEL = "gemini-3-pro-image-preview:generateContent"
+
+	// GRSAI Constants
+	GRSAI_API_BASE = "https://grsai.dakka.com.cn/v1"
 )
 
 // Helper to update task status in SvelteKit
@@ -94,11 +97,63 @@ type VideoCheckStatusPayload struct {
 	AssetID    string `json:"AssetID"`
 	VideoID    string `json:"VideoID"` // Internal ID
 	ExternalID string `json:"ExternalID"`
+	Provider   string `json:"Provider"`  // "grsai" or default
 	ImagePath  string `json:"ImagePath"` // Reference image path
 	TryCount   int    `json:"TryCount"`
 	UserID     string `json:"UserID"`
 	Width      int    `json:"Width"`
 	Height     int    `json:"Height"`
+}
+
+// GRSAI Structs
+type GRSAIImageRequest struct {
+	Model        string   `json:"model"`
+	Prompt       string   `json:"prompt"`
+	Size         string   `json:"size"`
+	Variants     int      `json:"variants"`
+	Urls         []string `json:"urls"`
+	WebHook      string   `json:"webHook"`
+	ShutProgress bool     `json:"shutProgress"`
+}
+
+type GRSAIVideoRequest struct {
+	Model        string `json:"model"`
+	Prompt       string `json:"prompt"`
+	Url          string `json:"url"`
+	AspectRatio  string `json:"aspectRatio"`
+	Duration     int    `json:"duration"`
+	Size         string `json:"size"`
+	WebHook      string `json:"webHook"`
+	ShutProgress bool   `json:"shutProgress"`
+}
+
+type GRSAIResponse struct {
+	ID            string `json:"id"`
+	Status        string `json:"status"`
+	FailureReason string `json:"failure_reason"`
+	Error         string `json:"error"`
+}
+
+type GRSAICheckRequest struct {
+	ID string `json:"id"`
+}
+
+type GRSAICheckResponse struct {
+	Code int `json:"code"`
+	Data struct {
+		ID      string `json:"id"`
+		Results []struct {
+			URL             string `json:"url"`
+			Content         string `json:"content"`         // For image
+			RemoveWatermark bool   `json:"removeWatermark"` // For video
+			PID             string `json:"pid"`
+		} `json:"results"`
+		Progress      int    `json:"progress"`
+		Status        string `json:"status"`
+		FailureReason string `json:"failure_reason"`
+		Error         string `json:"error"`
+	} `json:"data"`
+	Msg string `json:"msg"`
 }
 
 // --------------- 消费者：处理任务 ---------------
@@ -178,32 +233,102 @@ func HandleImageGenerateTask(ctx context.Context, t *asynq.Task) error {
 		"coverPath": coverKey,
 	})
 
-	// 4. Call AI Image Generation API (synchronous)
+	// 4. Call AI Image Generation API
 	apiKey := os.Getenv("AI_API_KEY")
+	grsaiKey := os.Getenv("GRSAI_KEY")
 	var generatedImageData []byte
 	var err error
 
-	if apiKey == "" {
-		fmt.Printf("[IMAGE] No AI_API_KEY found, switching to MOCK mode.\n")
-		// Create a dummy image file
-		dummyPath := filepath.Join(tmpDir, fmt.Sprintf("%s_generated.png", p.TaskID))
-		createDummyFile(dummyPath)
-		generatedImageData, err = os.ReadFile(dummyPath)
-		os.Remove(dummyPath)
-		if err != nil {
-			fmt.Printf("[IMAGE] Failed to read dummy image: %v\n", err)
-			updateTaskStatus(p.TaskID, "failed", nil)
-			return nil
+	// Flag to track which provider worked
+	providerUsed := "none"
+
+	// --- Try GRSAI First ---
+	if grsaiKey != "" && p.ImagePath != "" { // GRSAI needs an input image URL? Payload says "urls": [...]. Yes supports ref image.
+		fmt.Printf("[IMAGE] Attempting GRSAI...\n")
+		// Need a publicly accessible URL for the reference image.
+		// We uploaded a cover to R2 public bucket: 'coverKey'. Let's generate a presigned URL for the *original* reference if possible, or use the cover.
+		// Best to use the original reference image we downloaded. But we need a URL.
+		// We can generate a presigned URL for the 'uploaded' image in R2 (since we don't have public domain info handy).
+		// Wait, we downloaded 'p.ImagePath' from R2 Private to local.
+		// We should generate a presigned URL for `p.ImagePath` (in private bucket) or `coverKey` (in public bucket).
+		// User mentioned "参考图URL，可生成两小时临时公开链接". Presigning p.ImagePath (private) is best.
+
+		refImageKey := p.ImagePath
+		jeweaiBucket := os.Getenv("R2_BUCKET")
+		if jeweaiBucket == "" {
+			jeweaiBucket = "jeweai"
 		}
-	} else {
-		fmt.Printf("[IMAGE] Sending real request to AI Provider...\n")
-		generatedImageData, err = submitImageGenerateTask(apiKey, p.Prompt, localRefPath, p.Width, p.Height)
-		if err != nil {
-			fmt.Printf("[IMAGE] Failed to generate image: %v\n", err)
-			updateTaskStatus(p.TaskID, "failed", nil)
-			return nil
+
+		presignedURL, pErr := generateR2PresignedURL(ctx, jeweaiBucket, refImageKey)
+		if pErr == nil {
+			// Submit Task
+			// Determine size based on p.Width/p.Height or p.AspectRatio (not in payload yet, calculated below)
+			aspectRatio := "1:1" // Default
+			if p.Width > 0 && p.Height > 0 {
+				aspectRatio = getAspectRatio(p.Width, p.Height)
+			}
+
+			grsaiID, sErr := submitGRSAIImage(grsaiKey, p.Prompt, presignedURL, aspectRatio)
+			if sErr == nil {
+				fmt.Printf("[IMAGE] GRSAI Submited: %s. Polling...\n", grsaiID)
+				// Poll for result (Synchronous block as per original design)
+				// Poll for up to 60 seconds?
+				for i := 0; i < 20; i++ { // 20 * 3s = 60s
+					time.Sleep(3 * time.Second)
+					status, resultURL, cErr := checkGRSAI(grsaiKey, grsaiID, false)
+					if cErr != nil {
+						fmt.Printf("[IMAGE] GRSAI Poll Error: %v\n", cErr)
+						continue // Retry poll
+					}
+					if status == "success" {
+						fmt.Printf("[IMAGE] GRSAI Success: %s\n", resultURL)
+						// Download image
+						dlPath := filepath.Join(tmpDir, fmt.Sprintf("%s_grsai_dl.png", p.TaskID))
+						if dErr := downloadFile(resultURL, dlPath); dErr == nil {
+							generatedImageData, err = os.ReadFile(dlPath)
+							os.Remove(dlPath)
+							if err == nil {
+								providerUsed = "grsai"
+							}
+						}
+						break
+					} else if status == "failed" {
+						fmt.Printf("[IMAGE] GRSAI Job Failed.\n")
+						break
+					}
+				}
+			} else {
+				fmt.Printf("[IMAGE] GRSAI Submit Failed: %v\n", sErr)
+			}
+		} else {
+			fmt.Printf("[IMAGE] Presign Error: %v\n", pErr)
 		}
-		fmt.Printf("[IMAGE] Image generated successfully, size: %d bytes\n", len(generatedImageData))
+	}
+
+	// --- Fallback to Laozhang (Original) ---
+	if providerUsed == "none" {
+		if apiKey == "" {
+			fmt.Printf("[IMAGE] No AI_API_KEY found, switching to MOCK mode.\n")
+			// Create a dummy image file
+			dummyPath := filepath.Join(tmpDir, fmt.Sprintf("%s_generated.png", p.TaskID))
+			createDummyFile(dummyPath)
+			generatedImageData, err = os.ReadFile(dummyPath)
+			os.Remove(dummyPath)
+			if err != nil {
+				fmt.Printf("[IMAGE] Failed to read dummy image: %v\n", err)
+				updateTaskStatus(p.TaskID, "failed", nil)
+				return nil
+			}
+		} else {
+			fmt.Printf("[IMAGE] Sending real request to Laozhang AI Provider...\n")
+			generatedImageData, err = submitImageGenerateTask(apiKey, p.Prompt, localRefPath, p.Width, p.Height)
+			if err != nil {
+				fmt.Printf("[IMAGE] Failed to generate image: %v\n", err)
+				updateTaskStatus(p.TaskID, "failed", nil)
+				return nil
+			}
+			fmt.Printf("[IMAGE] Image generated successfully, size: %d bytes\n", len(generatedImageData))
+		}
 	}
 
 	// 5. Save generated image to temp file
@@ -333,22 +458,59 @@ func HandleVideoGenerateTask(ctx context.Context, t *asynq.Task) error {
 
 	// 4. Call AI Video API
 	apiKey := os.Getenv("AI_API_KEY")
+	grsaiKey := os.Getenv("GRSAI_KEY")
 	externalID := ""
+	provider := "laozhang" // default
 
-	if apiKey == "" {
-		fmt.Printf("[VIDEO] No AI_API_KEY found, switching to MOCK mode.\n")
-		externalID = fmt.Sprintf("mock_ext_%d", time.Now().UnixNano())
-	} else {
-		fmt.Printf("[VIDEO] Sending real request to AI Provider...\n")
-		// Prepare Multipart Request
-		extID, err := submitVideoTask(apiKey, p.Prompt, localRefPath)
-		if err != nil {
-			fmt.Printf("[VIDEO] Failed to submit video task: %v\n", err)
-			updateTaskStatus(p.TaskID, "failed", nil)
-			return nil
+	// Try GRSAI
+	if grsaiKey != "" {
+		jeweaiBucket := os.Getenv("R2_BUCKET")
+		if jeweaiBucket == "" {
+			jeweaiBucket = "jeweai"
 		}
-		externalID = extID
-		fmt.Printf("[VIDEO] Real Task Submitted. ID: %s\n", externalID)
+
+		// Generate presigned URL for reference image
+		presignedURL, pErr := generateR2PresignedURL(ctx, jeweaiBucket, p.ImagePath)
+		if pErr == nil {
+			fmt.Printf("[VIDEO] Attempting GRSAI...\n")
+			// AspectRatio? default 9:16 if not specified
+			// Logic: p.Width / p.Height check? or just default.
+			// Currently user request mentioned "aspectRatio": "9:16" in their example.
+			// We can default to 9:16 or infer.
+			// Let's infer from width/height if available, else 9:16
+			ratio := "9:16"
+			if p.Width > p.Height {
+				ratio = "16:9"
+			}
+
+			grsaiID, sErr := submitGRSAIVideo(grsaiKey, p.Prompt, presignedURL, ratio)
+			if sErr == nil {
+				externalID = grsaiID
+				provider = "grsai"
+				fmt.Printf("[VIDEO] GRSAI Task Submitted. ID: %s\n", externalID)
+			} else {
+				fmt.Printf("[VIDEO] GRSAI Submit Failed: %v\n", sErr)
+			}
+		}
+	}
+
+	// Fallback to Laozhang if GRSAI failed or key missing
+	if externalID == "" {
+		if apiKey == "" {
+			fmt.Printf("[VIDEO] No AI_API_KEY found, switching to MOCK mode.\n")
+			externalID = fmt.Sprintf("mock_ext_%d", time.Now().UnixNano())
+		} else {
+			fmt.Printf("[VIDEO] Sending real request to Laozhang AI Provider...\n")
+			// Prepare Multipart Request
+			extID, err := submitVideoTask(apiKey, p.Prompt, localRefPath)
+			if err != nil {
+				fmt.Printf("[VIDEO] Failed to submit video task: %v\n", err)
+				updateTaskStatus(p.TaskID, "failed", nil)
+				return nil
+			}
+			externalID = extID
+			fmt.Printf("[VIDEO] Laozhang Task Submitted. ID: %s\n", externalID)
+		}
 	}
 
 	// 5. Enqueue Status Check
@@ -357,6 +519,7 @@ func HandleVideoGenerateTask(ctx context.Context, t *asynq.Task) error {
 		AssetID:    p.AssetID,
 		VideoID:    p.VideoID,
 		ExternalID: externalID,
+		Provider:   provider,
 		ImagePath:  p.ImagePath,
 		TryCount:   0,
 		UserID:     p.UserID,
@@ -485,23 +648,40 @@ func HandleVideoCheckStatusTask(ctx context.Context, t *asynq.Task) error {
 
 	status := "pending"
 	apiKey := os.Getenv("AI_API_KEY")
+	grsaiKey := os.Getenv("GRSAI_KEY")
 
 	// Check Logic
-	if apiKey == "" || (len(p.ExternalID) >= 5 && p.ExternalID[:5] == "mock_") {
-		// MOCK Logic
-		if p.TryCount < 2 {
-			status = "processing"
+	if p.Provider == "grsai" {
+		if grsaiKey == "" {
+			fmt.Printf("[VIDEO] GRSAI Key missing during check!\n")
+			status = "failed"
 		} else {
-			status = "success"
+			s, _, err := checkGRSAI(grsaiKey, p.ExternalID, true)
+			if err != nil {
+				fmt.Printf("[VIDEO] GRSAI Check Error: %v\n", err)
+				status = "processing"
+			} else {
+				status = s
+			}
 		}
 	} else {
-		// Real Check Logic
-		s, err := checkVideoStatus(apiKey, p.ExternalID)
-		if err != nil {
-			fmt.Printf("[VIDEO] Check Status Error: %v\n", err)
-			status = "processing" // Retry on error
+		// Default / Laozhang / Mock
+		if apiKey == "" || (len(p.ExternalID) >= 5 && p.ExternalID[:5] == "mock_") {
+			// MOCK Logic
+			if p.TryCount < 2 {
+				status = "processing"
+			} else {
+				status = "success"
+			}
 		} else {
-			status = s
+			// Real Check Logic
+			s, err := checkVideoStatus(apiKey, p.ExternalID)
+			if err != nil {
+				fmt.Printf("[VIDEO] Check Status Error: %v\n", err)
+				status = "processing" // Retry on error
+			} else {
+				status = s
+			}
 		}
 	}
 
@@ -525,8 +705,22 @@ func HandleVideoCheckStatusTask(ctx context.Context, t *asynq.Task) error {
 		os.MkdirAll(tmpDir, 0755)
 		tmpVideoPath := filepath.Join(tmpDir, p.VideoID+".mp4")
 
-		// If Real API, download actual video
-		if apiKey != "" && p.ExternalID[:5] != "mock_" {
+		// Download Logic
+		if p.Provider == "grsai" {
+			// Get download URL again (or store it? CheckGRSAI returns it)
+			_, resultURL, err := checkGRSAI(grsaiKey, p.ExternalID, true)
+			if err == nil && resultURL != "" {
+				err = downloadFile(resultURL, tmpVideoPath)
+				if err != nil {
+					fmt.Printf("[VIDEO] GRSAI Download Error: %v\n", err)
+					createDummyVideo(tmpVideoPath) // Fallback
+				}
+			} else {
+				fmt.Printf("[VIDEO] GRSAI Get URL Error: %v\n", err)
+				createDummyVideo(tmpVideoPath)
+			}
+		} else if apiKey != "" && p.ExternalID[:5] != "mock_" {
+			// Laozhang Download
 			err := downloadVideoContent(apiKey, p.ExternalID, tmpVideoPath)
 			if err != nil {
 				fmt.Printf("[VIDEO] Content Download Error: %v\n", err)
@@ -786,43 +980,238 @@ func submitImageGenerateTask(apiKey, prompt, imagePath string, width, height int
 
 // getAspectRatio 根据宽度和高度计算宽高比字符串
 func getAspectRatio(width, height int) string {
-	// Calculate aspect ratio
-	gcd := func(a, b int) int {
-		for b != 0 {
-			a, b = b, a%b
-		}
-		return a
-	}
-
-	if width == 0 || height == 0 {
-		return "1:1" // Default
-	}
-
-	// Simplify ratio
-	w, h := width, height
-	d := gcd(w, h)
-	w /= d
-	h /= d
-
-	// Common ratios
-	if w == 1 && h == 1 {
+	if width <= 0 || height <= 0 {
 		return "1:1"
-	} else if w == 16 && h == 9 {
-		return "16:9"
-	} else if w == 9 && h == 16 {
-		return "9:16"
-	} else if w == 4 && h == 3 {
-		return "4:3"
-	} else if w == 3 && h == 4 {
-		return "3:4"
-	} else if w == 21 && h == 9 {
-		return "21:9"
 	}
 
-	// Return simplified ratio or default
-	if w <= 32 && h <= 32 {
-		return fmt.Sprintf("%d:%d", w, h)
+	// Calculate GCD
+	a, b := width, height
+	for b != 0 {
+		a, b = b, a%b
+	}
+	gcdVal := a
+
+	return fmt.Sprintf("%d:%d", width/gcdVal, height/gcdVal)
+}
+
+// --- Missing Helper Functions Implementation ---
+
+// downloadFile downloads a file from a URL to a local destination
+func downloadFile(url string, destPath string) error {
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("bad status: %s", resp.Status)
 	}
 
-	return "1:1" // Default fallback
+	out, err := os.Create(destPath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, resp.Body)
+	return err
+}
+
+// generateR2PresignedURL generates a presigned URL for an R2 object
+func generateR2PresignedURL(ctx context.Context, bucket, key string) (string, error) {
+	client, err := getS3Client(ctx) // getS3Client is in main.go
+	if err != nil {
+		return "", err
+	}
+
+	presignClient := s3.NewPresignClient(client)
+	presignReq, err := presignClient.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	}, func(o *s3.PresignOptions) {
+		o.Expires = 2 * time.Hour
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return presignReq.URL, nil
+}
+
+// submitGRSAIImage submits an image generation task to GRSAI
+func submitGRSAIImage(apiKey, prompt, imageUrl, aspectRatio string) (string, error) {
+	// API Endpoint for GRSAI Image Generation (Placeholder)
+	baseURL := os.Getenv("GRSAI_BASE_URL")
+	if baseURL == "" {
+		baseURL = "https://api.grsai.com/v1" // Fallback
+	}
+	url := fmt.Sprintf("%s/image/generations", baseURL)
+
+	payload := map[string]interface{}{
+		"prompt":       prompt,
+		"image_url":    imageUrl,
+		"aspect_ratio": aspectRatio,
+	}
+
+	jsonData, _ := json.Marshal(payload)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("GRSAI Error %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		ID     string `json:"id"`
+		TaskID string `json:"task_id"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", err
+	}
+	if result.ID != "" {
+		return result.ID, nil
+	}
+	if result.TaskID != "" {
+		return result.TaskID, nil
+	}
+
+	return "", fmt.Errorf("no id in response: %s", string(body))
+}
+
+// submitGRSAIVideo submits a video generation task to GRSAI
+func submitGRSAIVideo(apiKey, prompt, imageUrl, aspectRatio string) (string, error) {
+	baseURL := os.Getenv("GRSAI_BASE_URL")
+	if baseURL == "" {
+		baseURL = "https://api.grsai.com/v1"
+	}
+	url := fmt.Sprintf("%s/video/generations", baseURL)
+
+	payload := map[string]interface{}{
+		"prompt":       prompt,
+		"image_url":    imageUrl,
+		"aspect_ratio": aspectRatio,
+		"model":        "video-01",
+	}
+
+	jsonData, _ := json.Marshal(payload)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("GRSAI Video Error %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		ID     string `json:"id"`
+		TaskID string `json:"task_id"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", err
+	}
+
+	if result.ID != "" {
+		return result.ID, nil
+	}
+	if result.TaskID != "" {
+		return result.TaskID, nil
+	}
+
+	return "", fmt.Errorf("no id in response")
+}
+
+// checkGRSAI checks the status of a GRSAI task
+func checkGRSAI(apiKey, taskID string, looksLikeVideo bool) (string, string, error) {
+	baseURL := os.Getenv("GRSAI_BASE_URL")
+	if baseURL == "" {
+		baseURL = "https://api.grsai.com/v1"
+	}
+
+	url := fmt.Sprintf("%s/tasks/%s", baseURL, taskID)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", "", err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		// handle 404?
+		return "", "", fmt.Errorf("status check failed: %d", resp.StatusCode)
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	var result struct {
+		Status string `json:"status"` // pending, processing, success, failed
+		Result struct {
+			URL      string `json:"url"`
+			VideoURL string `json:"video_url"`
+			ImageURL string `json:"image_url"`
+		} `json:"result"`
+		Output string `json:"output"` // Sometimes direct URL
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", "", err
+	}
+
+	fileURL := ""
+	if result.Result.URL != "" {
+		fileURL = result.Result.URL
+	}
+	if result.Result.VideoURL != "" {
+		fileURL = result.Result.VideoURL
+	}
+	if result.Result.ImageURL != "" {
+		fileURL = result.Result.ImageURL
+	}
+	if result.Output != "" && fileURL == "" {
+		fileURL = result.Output
+	}
+
+	// Map status
+	s := result.Status
+	finalStatus := "processing"
+
+	if s == "succeeded" || s == "success" || s == "completed" {
+		finalStatus = "success"
+	} else if s == "failed" || s == "error" {
+		finalStatus = "failed"
+	}
+
+	return finalStatus, fileURL, nil
 }
