@@ -1084,7 +1084,7 @@ func submitGRSAIImage(apiKey, prompt, imageUrl, aspectRatio string) (string, err
 	}
 
 	payload := map[string]interface{}{
-		"model":        "sora-image",
+		"model":        "gpt-image-1.5", // gpt-image-1.5、sora-image
 		"prompt":       prompt,
 		"size":         size,
 		"variants":     1,
