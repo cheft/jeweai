@@ -22,8 +22,25 @@
 	let fileInput: HTMLInputElement;
 	let selectedStyle: { id: string; name: string; thumbnail: any } | null = null;
 	let isGenerating = false;
-	let orientation: 'landscape' | 'portrait' = 'portrait';
+	// let orientation: 'landscape' | 'portrait' = 'portrait';
+	let imageAspectRatio = '1:1';
+	let videoAspectRatio = '9:16';
+
+	$: currentAspectRatio = isImageOnly ? imageAspectRatio : videoAspectRatio;
+
 	let isOrientationOpen = false;
+
+	const allAspectRatios = [
+		{ value: '1:1', label: '方形 (1:1)', forVideo: false },
+		{ value: '3:2', label: '摄影横屏 (3:2)', forVideo: false },
+		{ value: '2:3', label: '摄影竖屏 (2:3)', forVideo: false },
+		{ value: '16:9', label: '影视横屏 (16:9)', forVideo: true },
+		{ value: '9:16', label: '短视频竖屏 (9:16)', forVideo: true }
+	];
+
+	$: filteredAspectRatios = isImageOnly
+		? allAspectRatios
+		: allAspectRatios.filter((r) => r.forVideo);
 
 	// Check URL params for assetId
 	onMount(() => {
@@ -57,7 +74,14 @@
 				prompt,
 				styleId: selectedStyle?.id,
 				isImageOnly,
-				orientation
+				aspectRatio: currentAspectRatio,
+				// Backward compatibility if needed, though aspect ratio is more precise
+				orientation:
+					currentAspectRatio.startsWith('9') ||
+					currentAspectRatio.startsWith('2') ||
+					currentAspectRatio === '1:1'
+						? 'portrait'
+						: 'landscape'
 			};
 
 			// If we have referenceAssetId, use it; otherwise use uploaded image
@@ -228,7 +252,7 @@
 			</h2>
 
 			<div
-				class="relative overflow-hidden rounded-[2.5rem] border border-white/10 bg-[#1a1a1a]/80 p-6 shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur-3xl"
+				class="relative rounded-[2.5rem] border border-white/10 bg-[#1a1a1a]/80 p-6 shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur-3xl"
 			>
 				<!-- Mode Switcher (Top Left) -->
 				<div
@@ -379,7 +403,9 @@
 				<div class="flex items-center justify-between px-4">
 					<div class="flex items-center space-x-6 text-gray-400">
 						<label
-							class="group relative cursor-pointer transition-all duration-300 hover:scale-110 hover:text-white {referenceAssetId ? 'opacity-50 cursor-not-allowed' : ''}"
+							class="group relative cursor-pointer transition-all duration-300 hover:scale-110 hover:text-white {referenceAssetId
+								? 'cursor-not-allowed opacity-50'
+								: ''}"
 						>
 							<input
 								bind:this={fileInput}
@@ -481,7 +507,7 @@
 								/></svg
 							>
 						</button>
-						<!-- Orientation Selector -->
+						<!-- Aspect Ratio Selector -->
 						<div class="relative">
 							<button
 								class="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm font-medium transition-all duration-300 hover:bg-white/10 {isOrientationOpen
@@ -489,7 +515,7 @@
 									: 'text-gray-400'}"
 								on:click={() => (isOrientationOpen = !isOrientationOpen)}
 							>
-								{#if orientation === 'landscape'}
+								{#if currentAspectRatio === '1:1'}
 									<svg
 										xmlns="http://www.w3.org/2000/svg"
 										width="18"
@@ -499,9 +525,51 @@
 										stroke="currentColor"
 										stroke-width="2"
 										stroke-linecap="round"
-										stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2" /></svg
+										stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" /></svg
 									>
-									<span>横屏</span>
+									<span>方形 (1:1)</span>
+								{:else if currentAspectRatio === '3:2'}
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										width="18"
+										height="18"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										><rect width="21" height="14" x="1.5" y="5" rx="2" /></svg
+									>
+									<span>摄影横屏 (3:2)</span>
+								{:else if currentAspectRatio === '2:3'}
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										width="18"
+										height="18"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										><rect width="14" height="21" x="5" y="1.5" rx="2" /></svg
+									>
+									<span>摄影竖屏 (2:3)</span>
+								{:else if currentAspectRatio === '16:9'}
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										width="18"
+										height="18"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										><rect width="22" height="12.375" x="1" y="5.8125" rx="2" /></svg
+									>
+									<span>影视横屏 (16:9)</span>
 								{:else}
 									<svg
 										xmlns="http://www.w3.org/2000/svg"
@@ -512,9 +580,10 @@
 										stroke="currentColor"
 										stroke-width="2"
 										stroke-linecap="round"
-										stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" /></svg
+										stroke-linejoin="round"
+										><rect width="12.375" height="22" x="5.8125" y="1" rx="2" /></svg
 									>
-									<span>竖屏</span>
+									<span>短视频竖屏 (9:16)</span>
 								{/if}
 								<svg
 									xmlns="http://www.w3.org/2000/svg"
@@ -533,56 +602,94 @@
 							{#if isOrientationOpen}
 								<div
 									transition:fly={{ y: -10, duration: 200 }}
-									class="absolute bottom-full left-0 mb-2 w-36 overflow-hidden rounded-xl border border-white/10 bg-[#1a1a1a] shadow-xl backdrop-blur-xl"
+									class="absolute bottom-full left-0 z-50 mb-2 w-48 overflow-hidden rounded-xl border border-white/10 bg-[#1a1a1a] shadow-xl backdrop-blur-xl"
 								>
-									<button
-										class="flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors {orientation ===
-										'landscape'
-											? 'bg-seko-accent/10 text-seko-accent'
-											: 'text-gray-300 hover:bg-white/5'}"
-										on:click={() => {
-											orientation = 'landscape';
-											isOrientationOpen = false;
-										}}
-									>
-										<svg
-											xmlns="http://www.w3.org/2000/svg"
-											width="18"
-											height="18"
-											viewBox="0 0 24 24"
-											fill="none"
-											stroke="currentColor"
-											stroke-width="2"
-											stroke-linecap="round"
-											stroke-linejoin="round"
-											><rect width="20" height="14" x="2" y="5" rx="2" /></svg
+									{#each filteredAspectRatios as ratio}
+										<button
+											class="flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors {currentAspectRatio ===
+											ratio.value
+												? 'bg-seko-accent/10 text-seko-accent'
+												: 'text-gray-300 hover:bg-white/5'}"
+											on:click={() => {
+												if (isImageOnly) {
+													imageAspectRatio = ratio.value;
+												} else {
+													videoAspectRatio = ratio.value;
+												}
+												isOrientationOpen = false;
+											}}
 										>
-										<span>横屏</span>
-									</button>
-									<button
-										class="flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors {orientation ===
-										'portrait'
-											? 'bg-seko-accent/10 text-seko-accent'
-											: 'text-gray-300 hover:bg-white/5'}"
-										on:click={() => {
-											orientation = 'portrait';
-											isOrientationOpen = false;
-										}}
-									>
-										<svg
-											xmlns="http://www.w3.org/2000/svg"
-											width="18"
-											height="18"
-											viewBox="0 0 24 24"
-											fill="none"
-											stroke="currentColor"
-											stroke-width="2"
-											stroke-linecap="round"
-											stroke-linejoin="round"
-											><rect width="14" height="20" x="5" y="2" rx="2" /></svg
-										>
-										<span>竖屏</span>
-									</button>
+											<div class="flex h-5 w-5 items-center justify-center">
+												{#if ratio.value === '1:1'}
+													<svg
+														xmlns="http://www.w3.org/2000/svg"
+														width="18"
+														height="18"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														><rect width="18" height="18" x="3" y="3" rx="2" /></svg
+													>
+												{:else if ratio.value === '3:2'}
+													<svg
+														xmlns="http://www.w3.org/2000/svg"
+														width="18"
+														height="18"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														><rect width="21" height="14" x="1.5" y="5" rx="2" /></svg
+													>
+												{:else if ratio.value === '2:3'}
+													<svg
+														xmlns="http://www.w3.org/2000/svg"
+														width="18"
+														height="18"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														><rect width="14" height="21" x="5" y="1.5" rx="2" /></svg
+													>
+												{:else if ratio.value === '16:9'}
+													<svg
+														xmlns="http://www.w3.org/2000/svg"
+														width="18"
+														height="18"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														><rect width="22" height="12.375" x="1" y="5.8125" rx="2" /></svg
+													>
+												{:else}
+													<svg
+														xmlns="http://www.w3.org/2000/svg"
+														width="18"
+														height="18"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														><rect width="12.375" height="22" x="5.8125" y="1" rx="2" /></svg
+													>
+												{/if}
+											</div>
+											<span>{ratio.label}</span>
+										</button>
+									{/each}
 								</div>
 							{/if}
 						</div>
@@ -699,7 +806,7 @@
 		</div>
 
 		<!-- Inspiration Plaza Section -->
-		<div class="mb-12 flex flex-col items-center justify-between gap-6 md:flex-row">
+		<!-- <div class="mb-12 flex flex-col items-center justify-between gap-6 md:flex-row">
 			<h2 class="text-2xl font-bold text-white md:text-3xl">灵感广场</h2>
 
 			<div
@@ -717,9 +824,9 @@
 					</button>
 				{/each}
 			</div>
-		</div>
+		</div> -->
 
-		<GalleryGrid items={filteredItems} />
+		<!-- <GalleryGrid items={filteredItems} /> -->
 
 		<!-- <div class="mt-20 text-center">
 			<p class="mb-6 text-gray-400">Ready to create your own?</p>
