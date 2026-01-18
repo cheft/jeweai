@@ -264,15 +264,20 @@ func HandleImageGenerateTask(ctx context.Context, t *asynq.Task) error {
 		return nil
 	}
 
-	// Determine size based on p.Width/p.Height
-	aspectRatio := "1:1" // Default
-	if p.Width > 0 && p.Height > 0 {
-		aspectRatio = getAspectRatio(p.Width, p.Height)
+	// Use aspectRatio from payload (passed from frontend through Node.js)
+	// Fallback to calculation if not provided
+	aspectRatio := p.AspectRatio
+	if aspectRatio == "" {
+		if p.Width > 0 && p.Height > 0 {
+			aspectRatio = getAspectRatio(p.Width, p.Height)
+		} else {
+			aspectRatio = "1:1" // Default
+		}
 	}
 
 	grsaiID := p.ExternalID
 	if grsaiID == "" {
-		fmt.Printf("[IMAGE] Attempting GRSAI...\n")
+		fmt.Printf("[IMAGE] Attempting GRSAI with aspectRatio: %s...\n", aspectRatio)
 		var sErr error
 		grsaiID, sErr = submitGRSAIImage(grsaiKey, p.Prompt, presignedURL, aspectRatio)
 		if sErr != nil {
@@ -506,11 +511,17 @@ func HandleVideoGenerateTask(ctx context.Context, t *asynq.Task) error {
 		return nil
 	}
 
-	fmt.Printf("[VIDEO] Attempting GRSAI...\n")
-	ratio := "9:16"
-	if p.Width > p.Height {
-		ratio = "16:9"
+	// Use aspectRatio from payload (passed from frontend through Node.js)
+	// Fallback to calculation if not provided
+	ratio := p.AspectRatio
+	if ratio == "" {
+		if p.Width > p.Height {
+			ratio = "16:9"
+		} else {
+			ratio = "9:16"
+		}
 	}
+	fmt.Printf("[VIDEO] Attempting GRSAI with aspectRatio: %s...\n", ratio)
 
 	externalID := p.ExternalID
 	if externalID == "" {
@@ -828,9 +839,10 @@ func submitGRSAIImage(apiKey, prompt, imageUrl, aspectRatio string) (string, err
 	}
 
 	payload := map[string]interface{}{
-		"model":        "nano-banana-pro", // gpt-image-1.5、sora-image、
+		"model":        "gpt-image-1.5", // gpt-image-1.5、sora-image、nano-banana-pro
 		"prompt":       prompt,
 		"aspectRatio":  aspectRatio,
+		"size":         aspectRatio,
 		"imageSize":    "4K",
 		"variants":     1,
 		"urls":         []string{imageUrl}, // Array

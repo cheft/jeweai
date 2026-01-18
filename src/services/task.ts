@@ -234,17 +234,19 @@ export const list = os
     return allTasks.map((row: any) => {
       // Logic: 
       // thumbnail: resultCover (video thumb) > referenceCover (image/ref thumb) > null
-      // referenceImage: referenceCover
+      // referenceImage: referenceCover (may be null for queued/generating tasks)
       // assetLink: resultAssetId (if video completed) > referenceAssetId
+      // prompt: always from task.prompt
 
       const thumbnail = row.resultCover || row.referenceCover || null;
       const assetLink = row.resultAssetId || row.referenceAssetId || row.id;
 
       return {
-        ...row, // This spreads all task columns
+        ...row, // This spreads all task columns including prompt
         thumbnail: thumbnail,
-        referenceImage: row.referenceCover,
+        referenceImage: row.referenceCover, // May be null initially, populated by Go worker
         assetLink: assetLink,
+        prompt: row.prompt, // Explicitly include prompt (already in row, but making it clear)
       };
     });
   });
