@@ -34,7 +34,7 @@ function getContentTypeFromExtension(filename: string): string {
 async function deleteR2Object(bucket: string, key: string) {
   const safeKey = key.startsWith('/') ? key.slice(1) : key;
   const url = `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${bucket}/objects/${safeKey}`;
-  
+
   try {
     const res = await fetch(url, {
       method: 'DELETE',
@@ -63,7 +63,7 @@ async function deleteR2Object(bucket: string, key: string) {
 async function copyR2Object(srcBucket: string, srcKey: string, destBucket: string, destKey: string, contentType?: string) {
   const safeSrcKey = srcKey.startsWith('/') ? srcKey.slice(1) : srcKey;
   const safeDestKey = destKey.startsWith('/') ? destKey.slice(1) : destKey;
-  
+
   try {
     // Step 1: Download source file
     const getUrl = `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${srcBucket}/objects/${safeSrcKey}`;
@@ -83,7 +83,7 @@ async function copyR2Object(srcBucket: string, srcKey: string, destBucket: strin
     // Get Content-Type from response or use provided/default
     const sourceContentType = contentType || getRes.headers.get('Content-Type') || getContentTypeFromExtension(safeSrcKey);
     const fileData = await getRes.arrayBuffer();
-    
+
     console.log(`[R2] Downloaded ${fileData.byteLength} bytes from ${srcBucket}/${safeSrcKey}`);
 
     // Step 2: Upload to destination
@@ -127,7 +127,7 @@ export const list = os
 
     // Build where condition for folderId
     // Use isNull() for null checks, not eq(column, null)
-    const folderCondition = folderId === null 
+    const folderCondition = folderId === null
       ? isNull(assets.folderId)
       : eq(assets.folderId, folderId);
 
@@ -145,7 +145,7 @@ export const list = os
     // Fetch folders if needed
     let folderList: any[] = [];
     if (includeFolders) {
-      const parentCondition = folderId === null 
+      const parentCondition = folderId === null
         ? isNull(folders.parentId)
         : eq(folders.parentId, folderId);
 
@@ -174,7 +174,7 @@ export const list = os
       // Handle timestamp conversion - D1 stores as integer (unix timestamp in seconds or milliseconds)
       let createdAt: number;
       let updatedAt: number;
-      
+
       if (asset.createdAt instanceof Date) {
         createdAt = asset.createdAt.getTime();
       } else if (typeof asset.createdAt === 'number') {
@@ -203,6 +203,7 @@ export const list = os
         path: asset.path,
         width: asset.width,
         height: asset.height,
+        aspectRatio: asset.aspectRatio || null,
         createdAt,
         updatedAt,
       };
@@ -320,6 +321,7 @@ export const get = os
       originalImageUrl,
       width: asset.width || null,
       height: asset.height || null,
+      aspectRatio: asset.aspectRatio || null,
       prompt: taskRelation?.prompt || asset.prompt || null,
       taskId: taskRelation?.id || null,
       taskStatus: taskRelation?.status || null,
@@ -365,7 +367,7 @@ export const update = os
     if (input.name !== undefined || input.folderId !== undefined) {
       // Only check if name actually changed
       if (targetName !== asset.name || targetFolderId !== asset.folderId) {
-        const folderCondition = targetFolderId === null 
+        const folderCondition = targetFolderId === null
           ? isNull(assets.folderId)
           : eq(assets.folderId, targetFolderId);
 
@@ -437,9 +439,9 @@ export const copy = os
       try {
         // Pass mimeType if available, otherwise it will be inferred from extension
         await copyR2Object(
-          R2_BUCKET || 'jeweai', 
-          sourceAsset.path, 
-          R2_BUCKET || 'jeweai', 
+          R2_BUCKET || 'jeweai',
+          sourceAsset.path,
+          R2_BUCKET || 'jeweai',
           newPathKey,
           sourceAsset.mimeType || undefined
         );
@@ -449,8 +451,8 @@ export const copy = os
         console.error(`[Asset Copy] Failed to copy file ${sourceAsset.path}:`, err);
         // If copy fails, we should still create the asset but without the file
         // Or we could throw an error - let's throw to ensure data consistency
-        throw new ORPCError('INTERNAL_SERVER_ERROR', { 
-          message: `Failed to copy file: ${err instanceof Error ? err.message : 'Unknown error'}` 
+        throw new ORPCError('INTERNAL_SERVER_ERROR', {
+          message: `Failed to copy file: ${err instanceof Error ? err.message : 'Unknown error'}`
         });
       }
     }
@@ -462,9 +464,9 @@ export const copy = os
       try {
         // Cover files are usually images, infer from extension
         await copyR2Object(
-          R2_PUBLIC_BUCKET || 'covers', 
-          sourceAsset.coverPath, 
-          R2_PUBLIC_BUCKET || 'covers', 
+          R2_PUBLIC_BUCKET || 'covers',
+          sourceAsset.coverPath,
+          R2_PUBLIC_BUCKET || 'covers',
           newCoverKey
         );
         newCoverPath = newCoverKey;
@@ -508,6 +510,7 @@ export const copy = os
       mimeType: sourceAsset.mimeType,
       width: sourceAsset.width,
       height: sourceAsset.height,
+      aspectRatio: sourceAsset.aspectRatio,
       duration: sourceAsset.duration,
       prompt: sourceAsset.prompt,
       metadata: sourceAsset.metadata,
@@ -568,7 +571,7 @@ export const createFolder = os
 
     // Check for name conflict in the same directory
     const parentId = input.parentId || null;
-    const parentCondition = parentId === null 
+    const parentCondition = parentId === null
       ? isNull(folders.parentId)
       : eq(folders.parentId, parentId);
 
@@ -629,7 +632,7 @@ export const updateFolder = os
     if (input.name !== undefined || input.parentId !== undefined) {
       // Only check if name actually changed
       if (targetName !== folder.name || targetParentId !== folder.parentId) {
-        const parentCondition = targetParentId === null 
+        const parentCondition = targetParentId === null
           ? isNull(folders.parentId)
           : eq(folders.parentId, targetParentId);
 
@@ -764,7 +767,7 @@ export const listFolders = os
     const userId = 'userid123456'; // TODO: auth
 
     const parentId = input?.parentId ?? null;
-    const parentCondition = parentId === null 
+    const parentCondition = parentId === null
       ? isNull(folders.parentId)
       : eq(folders.parentId, parentId);
 

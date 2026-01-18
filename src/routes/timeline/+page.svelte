@@ -124,9 +124,19 @@
 				</h2>
 				<div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 					{#each videosInGroup as video (video.id)}
+						{@const aspectRatioClass =
+							video.aspectRatio === '1:1'
+								? 'aspect-square'
+								: video.aspectRatio === '16:9'
+									? 'aspect-video'
+									: video.aspectRatio === '3:2'
+										? 'aspect-[3/2]'
+										: video.aspectRatio === '2:3'
+											? 'aspect-[2/3]'
+											: 'aspect-9/16'}
 						<a
 							href="/timeline/{video.assetLink}"
-							class="group relative block aspect-9/16 overflow-hidden rounded-2xl border border-white/10 bg-white/5 transition-all duration-300 hover:border-seko-accent/50 hover:shadow-[0_0_30px_rgba(163,230,53,0.15)] focus:ring-2 focus:ring-seko-accent focus:ring-offset-2 focus:ring-offset-black focus:outline-none"
+							class="group relative block {aspectRatioClass} overflow-hidden rounded-2xl border border-white/10 bg-white/5 transition-all duration-300 hover:border-seko-accent/50 hover:shadow-[0_0_30px_rgba(163,230,53,0.15)] focus:ring-2 focus:ring-seko-accent focus:ring-offset-2 focus:ring-offset-black focus:outline-none"
 							in:fade={{ duration: 400, delay: Number(video.id) * 50 }}
 						>
 							<!-- Time Badge (Always Visible) -->
@@ -168,11 +178,15 @@
 											{/if}
 										</div>
 									</div>
-									<p
-										class="line-clamp-2 text-sm leading-snug font-medium text-white drop-shadow-md group-hover:text-white/90"
-									>
-										{video.prompt}
-									</p>
+									<!-- Always show prompt -->
+									{#if video.prompt}
+										<p
+											class="line-clamp-2 text-sm leading-snug font-medium text-white drop-shadow-md group-hover:text-white/90"
+										>
+											{video.prompt}
+										</p>
+									{/if}
+									<!-- Always show reference image -->
 									<div class="mt-3 flex items-center gap-2">
 										{#if video.referenceImage}
 											<img
@@ -198,7 +212,21 @@
 										class="mb-2 animate-pulse bg-linear-to-r from-seko-accent to-emerald-400 bg-clip-text text-lg font-bold text-transparent"
 										>Generating...</span
 									>
-									<p class="line-clamp-3 text-sm text-gray-400">{video.prompt}</p>
+									<!-- Always show prompt -->
+									{#if video.prompt}
+										<p class="line-clamp-3 text-sm text-gray-400">{video.prompt}</p>
+									{/if}
+									<!-- Always show reference image -->
+									{#if video.referenceImage}
+										<div class="mt-4 flex items-center gap-2">
+											<img
+												src="{R2_DOMAIN}/{video.referenceImage}"
+												alt="Ref"
+												class="h-8 w-8 rounded-lg border border-white/30 object-cover shadow-sm"
+											/>
+											<span class="text-xs text-gray-400">Reference</span>
+										</div>
+									{/if}
 								</div>
 							{:else if video.status === 'queued'}
 								<div
@@ -213,6 +241,21 @@
 									<div class="w-full max-w-[120px] rounded-full bg-white/5 py-1">
 										<p class="font-mono text-xs text-gray-500">Wait time: ~2m</p>
 									</div>
+									<!-- Always show prompt -->
+									{#if video.prompt}
+										<p class="mt-3 line-clamp-3 text-sm text-gray-400">{video.prompt}</p>
+									{/if}
+									<!-- Always show reference image -->
+									{#if video.referenceImage}
+										<div class="mt-4 flex items-center gap-2">
+											<img
+												src="{R2_DOMAIN}/{video.referenceImage}"
+												alt="Ref"
+												class="h-8 w-8 rounded-lg border border-white/30 object-cover shadow-sm"
+											/>
+											<span class="text-xs text-gray-400">Reference</span>
+										</div>
+									{/if}
 								</div>
 							{:else if video.status === 'failed'}
 								<div
@@ -236,6 +279,21 @@
 											<RefreshCw class="h-4 w-4" />
 											Retry Check
 										</button>
+									{/if}
+									<!-- Always show prompt -->
+									{#if video.prompt}
+										<p class="mt-3 line-clamp-3 text-sm text-gray-400">{video.prompt}</p>
+									{/if}
+									<!-- Always show reference image -->
+									{#if video.referenceImage}
+										<div class="mt-4 flex items-center gap-2">
+											<img
+												src="{R2_DOMAIN}/{video.referenceImage}"
+												alt="Ref"
+												class="h-8 w-8 rounded-lg border border-white/30 object-cover shadow-sm"
+											/>
+											<span class="text-xs text-gray-400">Reference</span>
+										</div>
 									{/if}
 								</div>
 							{/if}

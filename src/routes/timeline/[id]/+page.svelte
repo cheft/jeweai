@@ -109,6 +109,13 @@
 							>
 								<track kind="captions" />
 							</video>
+						{:else if asset.type === 'image' && asset.originalImageUrl}
+							<!-- Show original full-resolution image for image assets -->
+							<img
+								src={asset.originalImageUrl}
+								alt={asset.name}
+								class="h-full w-full object-contain"
+							/>
 						{:else if asset.taskStatus === 'generating'}
 							<div class="absolute inset-0 flex flex-col items-center justify-center">
 								<div

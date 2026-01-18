@@ -65,50 +65,54 @@ func updateTaskStatus(taskId, status string, data map[string]interface{}) {
 // --------------- 任务有效载荷 ---------------
 
 type ImageGeneratePayload struct {
-	TaskID     string `json:"TaskID"`
-	AssetID    string `json:"AssetID"`
-	ImagePath  string `json:"ImagePath"`
-	Width      int    `json:"Width"`
-	Height     int    `json:"Height"`
-	ImgName    string `json:"ImgName"`
-	Prompt     string `json:"Prompt"`
-	StyleID    string `json:"StyleID"`
-	ExternalID string `json:"ExternalID"` // For retries
+	TaskID      string `json:"TaskID"`
+	AssetID     string `json:"AssetID"`
+	ImagePath   string `json:"ImagePath"`
+	Width       int    `json:"Width"`
+	Height      int    `json:"Height"`
+	ImgName     string `json:"ImgName"`
+	Prompt      string `json:"Prompt"`
+	StyleID     string `json:"StyleID"`
+	AspectRatio string `json:"AspectRatio"`
+	ExternalID  string `json:"ExternalID"` // For retries
 }
 
 type ImageCheckStatusPayload struct {
-	TaskID     string `json:"TaskID"`
-	AssetID    string `json:"AssetID"`
-	ExternalID string `json:"ExternalID"`
-	ImagePath  string `json:"ImagePath"` // Reference image path (if any)
-	TryCount   int    `json:"TryCount"`
-	Width      int    `json:"Width"`
-	Height     int    `json:"Height"`
+	TaskID      string `json:"TaskID"`
+	AssetID     string `json:"AssetID"`
+	ExternalID  string `json:"ExternalID"`
+	ImagePath   string `json:"ImagePath"` // Reference image path (if any)
+	TryCount    int    `json:"TryCount"`
+	Width       int    `json:"Width"`
+	Height      int    `json:"Height"`
+	AspectRatio string `json:"AspectRatio"`
 }
 
 type VideoGeneratePayload struct {
-	TaskID     string `json:"TaskID"`
-	AssetID    string `json:"AssetID"`
-	VideoID    string `json:"VideoID"` // Internal ID
-	Prompt     string `json:"Prompt"`
-	ImagePath  string `json:"ImagePath"`
-	StyleID    string `json:"StyleID"`
-	UserID     string `json:"UserID"`
-	Width      int    `json:"Width"`
-	Height     int    `json:"Height"`
-	ExternalID string `json:"ExternalID"` // For retries
+	TaskID      string `json:"TaskID"`
+	AssetID     string `json:"AssetID"`
+	VideoID     string `json:"VideoID"` // Internal ID
+	Prompt      string `json:"Prompt"`
+	ImagePath   string `json:"ImagePath"`
+	StyleID     string `json:"StyleID"`
+	UserID      string `json:"UserID"`
+	Width       int    `json:"Width"`
+	Height      int    `json:"Height"`
+	AspectRatio string `json:"AspectRatio"`
+	ExternalID  string `json:"ExternalID"` // For retries
 }
 
 type VideoCheckStatusPayload struct {
-	TaskID     string `json:"TaskID"`
-	AssetID    string `json:"AssetID"`
-	VideoID    string `json:"VideoID"` // Internal ID
-	ExternalID string `json:"ExternalID"`
-	ImagePath  string `json:"ImagePath"` // Reference image path
-	TryCount   int    `json:"TryCount"`
-	UserID     string `json:"UserID"`
-	Width      int    `json:"Width"`
-	Height     int    `json:"Height"`
+	TaskID      string `json:"TaskID"`
+	AssetID     string `json:"AssetID"`
+	VideoID     string `json:"VideoID"` // Internal ID
+	ExternalID  string `json:"ExternalID"`
+	ImagePath   string `json:"ImagePath"` // Reference image path
+	TryCount    int    `json:"TryCount"`
+	UserID      string `json:"UserID"`
+	Width       int    `json:"Width"`
+	Height      int    `json:"Height"`
+	AspectRatio string `json:"AspectRatio"`
 }
 
 // GRSAI Structs
@@ -288,13 +292,14 @@ func HandleImageGenerateTask(ctx context.Context, t *asynq.Task) error {
 
 	// 5. Enqueue Status Check
 	checkPayload, _ := json.Marshal(ImageCheckStatusPayload{
-		TaskID:     p.TaskID,
-		AssetID:    p.AssetID,
-		ExternalID: grsaiID,
-		ImagePath:  p.ImagePath,
-		TryCount:   0,
-		Width:      p.Width,
-		Height:     p.Height,
+		TaskID:      p.TaskID,
+		AssetID:     p.AssetID,
+		ExternalID:  grsaiID,
+		ImagePath:   p.ImagePath,
+		TryCount:    0,
+		Width:       p.Width,
+		Height:      p.Height,
+		AspectRatio: p.AspectRatio,
 	})
 
 	client := NewClient()
@@ -416,6 +421,7 @@ func processImageResult(ctx context.Context, p ImageCheckStatusPayload, resultUR
 		"imageCoverPath": imageCoverKey,
 		"width":          p.Width,
 		"height":         p.Height,
+		"aspectRatio":    p.AspectRatio,
 	})
 
 	fmt.Printf("=== [IMAGE] COMPLETED: %s ===\n", p.TaskID)
@@ -529,15 +535,16 @@ func HandleVideoGenerateTask(ctx context.Context, t *asynq.Task) error {
 
 	// 5. Enqueue Status Check
 	checkPayload, _ := json.Marshal(VideoCheckStatusPayload{
-		TaskID:     p.TaskID,
-		AssetID:    p.AssetID,
-		VideoID:    p.VideoID,
-		ExternalID: externalID,
-		ImagePath:  p.ImagePath,
-		TryCount:   0,
-		UserID:     p.UserID,
-		Width:      p.Width,
-		Height:     p.Height,
+		TaskID:      p.TaskID,
+		AssetID:     p.AssetID,
+		VideoID:     p.VideoID,
+		ExternalID:  externalID,
+		ImagePath:   p.ImagePath,
+		TryCount:    0,
+		UserID:      p.UserID,
+		Width:       p.Width,
+		Height:      p.Height,
+		AspectRatio: p.AspectRatio,
 	})
 
 	client := NewClient()
@@ -704,6 +711,7 @@ func processVideoResult(ctx context.Context, p VideoCheckStatusPayload, resultUR
 		"videoCoverPath": thumbKey,
 		"width":          p.Width,
 		"height":         p.Height,
+		"aspectRatio":    p.AspectRatio,
 	})
 
 	return nil
@@ -820,9 +828,10 @@ func submitGRSAIImage(apiKey, prompt, imageUrl, aspectRatio string) (string, err
 	}
 
 	payload := map[string]interface{}{
-		"model":        "gpt-image-1.5", // gpt-image-1.5、sora-image
+		"model":        "nano-banana-pro", // gpt-image-1.5、sora-image、
 		"prompt":       prompt,
-		"size":         size,
+		"aspectRatio":  aspectRatio,
+		"imageSize":    "4K",
 		"variants":     1,
 		"urls":         []string{imageUrl}, // Array
 		"webHook":      "-1",

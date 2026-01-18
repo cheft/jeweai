@@ -11,3 +11,4 @@ R2_PUBLIC_BUCKET=covers
 AI_KEY=sk-N3mgiBMdRLcvl1X15bD9B73a364e4bF1B0816526Ed1bF1E52
 GRSAI_KEY=sk-86e9467842524f0eaab6f15587097b0a2
 GRSAI_BASE_URL=https://grsai.dakka.com.cn/v1
+GOOGLE_OAUTH_CLIENT=684855075813-fu9ch1urclne4nif066pto1egapfp9pv.apps.googleusercontent.com

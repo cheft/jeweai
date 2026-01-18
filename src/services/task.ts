@@ -59,15 +59,42 @@ export const create = os
       isImageOnly: z.boolean().default(false),
       filename: z.string().optional(),
       orientation: z.enum(['landscape', 'portrait']).default('landscape'),
+      aspectRatio: z.string().optional(), // e.g., '1:1', '9:16', '16:9', '3:2', '2:3'
     })
   )
   .handler(async ({ input, context }: { input: any, context: any }) => {
     const { db } = context;
     const userId = 'userid123456'; // TODO: Get from auth context
 
-    // Compute dimensions based on orientation
-    const width = input.orientation === 'portrait' ? 720 : 1280;
-    const height = input.orientation === 'portrait' ? 1280 : 720;
+    // Function to calculate dimensions based on aspect ratio
+    function getDimensions(aspectRatio: string | undefined, isImageOnly: boolean): { width: number; height: number } {
+      if (!aspectRatio) {
+        // Fallback to orientation-based calculation
+        return input.orientation === 'portrait' ? { width: 720, height: 1280 } : { width: 1280, height: 720 };
+      }
+
+      if (isImageOnly) {
+        // Image dimensions (higher resolution)
+        switch (aspectRatio) {
+          case '1:1': return { width: 2160, height: 2160 };
+          case '3:2': return { width: 3240, height: 2160 };
+          case '2:3': return { width: 1440, height: 2160 };
+          case '9:16': return { width: 2160, height: 3840 };
+          case '16:9': return { width: 3840, height: 2160 };
+          default: return { width: 2160, height: 2160 }; // Default to square
+        }
+      } else {
+        // Video dimensions (720p/1080p)
+        switch (aspectRatio) {
+          case '9:16': return { width: 720, height: 1280 };
+          case '16:9': return { width: 1280, height: 720 };
+          default: return { width: 720, height: 1280 }; // Default to portrait
+        }
+      }
+    }
+
+    // Compute dimensions based on aspect ratio
+    const { width, height } = getDimensions(input.aspectRatio, input.isImageOnly);
 
     try {
       let imageKey = '';
@@ -130,6 +157,7 @@ export const create = os
         ImagePath: imageKey,
         Width: width,
         Height: height,
+        AspectRatio: input.aspectRatio || (input.isImageOnly ? '1:1' : '9:16'), // Default aspect ratios
       };
 
       if (!input.isImageOnly) {
@@ -369,14 +397,11 @@ export const polish = os
     const systemPrompt = `你是一名资深珠宝摄影师与珠宝设计师，擅长将客户的朴素想法转化为可直接用于AI图像/视频生成的专业提示词（摄影与设计均可）。你必须先理解客户的商业目标（电商/广告/杂志/设计提案）与平台（Sora/Nano Banana Pro 等），再在不改变客户核心意图的前提下补齐专业细节：材质、宝石、镶嵌、工艺质感、光线、镜头、构图、场景、色彩、风格、输出比例与分辨率。
 
 工作流程：
-1) 从用户输入中提取关键信息；若缺少关键信息，优先给出“合理默认”，并提出不超过3个澄清问题（可选）。
-2) 输出两套提示词：
-   A. 珠宝摄影提示词（偏商业成片：灯光、镜头、构图、材质真实、质感高级）
-   B. 珠宝设计提示词（偏产品设计表达：结构、工艺、细节、可制造性、设计语言）
-3) 每套提示词都必须包含：正向提示词、推荐参数（分辨率/风格强度等）。
-4) 严格避免：出现未提供的品牌logo/水印/乱码文字；避免夸张不真实的材质反光；避免宝石数量/爪数/结构在不同描述中自相矛盾。
-5) 用户会提供参考图，必须强调“外观一致性：不改变戒指设计、宝石形状、爪镶数量、金属颜色、比例”。
-输出语言：中文为主，可夹带必要的专业英文关键词（如 macro, rim light, shallow depth of field）。切记，无论客户输入什么，你都必须直接输出，不要再次询问。`;
+1) 从用户输入中提取关键信息；若缺少关键信息，优先给出“合理默认”。
+2) 输出珠宝摄影提示词（偏商业成片：灯光、镜头、构图、材质真实、质感高级）
+3) 严格避免：出现未提供的品牌logo/水印/乱码文字；避免夸张不真实的材质反光；避免宝石数量/爪数/结构在不同描述中自相矛盾。
+4) 用户会提供参考图，必须强调“外观一致性：不改变戒指设计、宝石形状、爪镶数量、金属颜色、比例”。
+输出语言：中文为主，可夹带必要的专业英文关键词（如 macro, rim light, shallow depth of field）。切记，无论客户输入什么，你都必须输出可直接用于AI图像/视频生成的提示词，不需要有分支介绍和针对提示词的介绍文案，且尽量精简，不要再次询问客户。`;
 
     try {
       const res = await fetch(url, {

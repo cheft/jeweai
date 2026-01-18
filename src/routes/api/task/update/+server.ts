@@ -50,6 +50,14 @@ export const POST: RequestHandler = async ({ request }) => {
         const videoWidth = payload.width || 1280;
         const videoHeight = payload.height || 720;
 
+        // Calculate aspectRatio from dimensions if not provided
+        const calculateAspectRatio = (w: number, h: number): string => {
+          const gcd = (a: number, b: number): number => b === 0 ? a : gcd(b, a % b);
+          const divisor = gcd(w, h);
+          return `${w / divisor}:${h / divisor}`;
+        };
+        const aspectRatio = payload.aspectRatio || calculateAspectRatio(videoWidth, videoHeight);
+
         const [newVideoAsset] = await db.insert(assets).values({
           id: nanoid(),
           userId: task.userId || '',
@@ -62,6 +70,7 @@ export const POST: RequestHandler = async ({ request }) => {
           prompt: task.prompt,
           width: videoWidth,
           height: videoHeight,
+          aspectRatio: aspectRatio,
           status: 'unlocked',
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -86,6 +95,14 @@ export const POST: RequestHandler = async ({ request }) => {
         const imageWidth = payload.width || 1024;
         const imageHeight = payload.height || 1024;
 
+        // Calculate aspectRatio from dimensions if not provided
+        const calculateAspectRatio = (w: number, h: number): string => {
+          const gcd = (a: number, b: number): number => b === 0 ? a : gcd(b, a % b);
+          const divisor = gcd(w, h);
+          return `${w / divisor}:${h / divisor}`;
+        };
+        const aspectRatio = payload.aspectRatio || calculateAspectRatio(imageWidth, imageHeight);
+
         if (!imagePath) {
           console.error(`[Webhook] Missing imagePath for image task ${taskId}`);
           return json({ error: 'Missing imagePath' }, { status: 400 });
@@ -103,6 +120,7 @@ export const POST: RequestHandler = async ({ request }) => {
           prompt: task.prompt,
           width: imageWidth,
           height: imageHeight,
+          aspectRatio: aspectRatio,
           status: 'unlocked',
           createdAt: new Date(),
           updatedAt: new Date(),

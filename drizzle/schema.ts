@@ -49,6 +49,7 @@ export const assets = sqliteTable("assets", {
 
   width: integer("width"),
   height: integer("height"),
+  aspectRatio: text("aspect_ratio"),
   duration: integer("duration"),
 
   prompt: text("prompt"),
