@@ -119,14 +119,13 @@ export const list = os
     }).optional()
   )
   .handler(async ({ input, context }: { input?: { folderId?: string | null, includeFolders?: boolean }, context: any }) => {
-    const { db } = context;
-    const userId = 'userid123456'; // TODO: auth
+    const { db, userId } = context;
+    if (!userId) throw new ORPCError('UNAUTHORIZED');
 
     const folderId = input?.folderId ?? null;
     const includeFolders = input?.includeFolders ?? false;
 
     // Build where condition for folderId
-    // Use isNull() for null checks, not eq(column, null)
     const folderCondition = folderId === null
       ? isNull(assets.folderId)
       : eq(assets.folderId, folderId);
@@ -166,19 +165,16 @@ export const list = os
     const assetResults = allAssets.map((asset) => {
       let coverUrl: string | null = null;
       if (asset.coverPath) {
-        // Ensure coverPath doesn't start with / and build URL correctly
         const cleanCoverPath = asset.coverPath.startsWith('/') ? asset.coverPath.slice(1) : asset.coverPath;
         coverUrl = `${R2_COVER_DOMAIN}/${cleanCoverPath}`;
       }
 
-      // Handle timestamp conversion - D1 stores as integer (unix timestamp in seconds or milliseconds)
       let createdAt: number;
       let updatedAt: number;
 
       if (asset.createdAt instanceof Date) {
         createdAt = asset.createdAt.getTime();
       } else if (typeof asset.createdAt === 'number') {
-        // If it's already a timestamp, check if it's in seconds or milliseconds
         createdAt = asset.createdAt > 1000000000000 ? asset.createdAt : asset.createdAt * 1000;
       } else {
         createdAt = Date.now();
@@ -227,8 +223,8 @@ export const list = os
 export const get = os
   .input(z.object({ id: z.string() }))
   .handler(async ({ input, context }: { input: { id: string }, context: any }) => {
-    const { db } = context;
-    const userId = 'userid123456'; // TODO: auth
+    const { db, userId } = context;
+    if (!userId) throw new ORPCError('UNAUTHORIZED');
 
     // Fetch asset by ID
     const [asset] = await db.select()
@@ -240,16 +236,12 @@ export const get = os
       throw new ORPCError('NOT_FOUND', { message: 'Asset not found' });
     }
 
-    // Find task related to this asset (as reference or result)
+    // Find task related to this asset
     const [relatedTask] = await db.select()
       .from(tasks)
       .where(
         and(
           eq(tasks.userId, userId),
-          // Either this asset is the reference or the result
-          // Using a simple OR logic: referenceAssetId = input.id OR resultAssetId = input.id
-          // Drizzle doesn't have direct OR in `and()`, so we do two queries or use sql
-          // For simplicity, let's check resultAssetId first (video asset)
           eq(tasks.resultAssetId, input.id)
         )
       )
@@ -257,7 +249,6 @@ export const get = os
 
     let taskRelation = relatedTask;
     if (!taskRelation) {
-      // Check if this asset is a reference asset
       const [refTask] = await db.select()
         .from(tasks)
         .where(
@@ -270,31 +261,21 @@ export const get = os
       taskRelation = refTask;
     }
 
-    // Determine URLs
-    // 1. If asset is a video (type === 'video'), its `path` is in the private `jeweai` bucket.
-    //    Generate a presigned URL.
-    // 2. `coverPath` is always in the public `covers` bucket.
-    // 3. For the original image (if asset type is 'image'), `path` is in `jeweai` (private).
-
     let videoUrl: string | null = null;
     let originalImageUrl: string | null = null;
     let coverUrl: string | null = null;
 
     if (asset.coverPath) {
-      // Ensure coverPath doesn't start with / and build URL correctly
       const cleanCoverPath = asset.coverPath.startsWith('/') ? asset.coverPath.slice(1) : asset.coverPath;
       coverUrl = `${R2_COVER_DOMAIN}/${cleanCoverPath}`;
     }
 
     if (asset.type === 'video' && asset.path) {
-      // Video file is private, generate presigned URL
       videoUrl = await getPresignedUrl(asset.path);
     } else if (asset.type === 'image' && asset.path) {
-      // Original image file is private, generate presigned URL
       originalImageUrl = await getPresignedUrl(asset.path);
     }
 
-    // Get reference asset details if this is a video asset
     let referenceAsset: any = null;
     if (taskRelation && taskRelation.referenceAssetId && taskRelation.referenceAssetId !== asset.id) {
       const [refAsset] = await db.select()
@@ -328,7 +309,7 @@ export const get = os
       updatedAt: asset.updatedAt,
       createdAt: asset.createdAt,
       referenceAsset,
-      model: 'SekoMotion v2.0', // Placeholder
+      model: 'SekoMotion v2.0',
     };
   });
 
@@ -341,10 +322,9 @@ export const update = os
     })
   )
   .handler(async ({ input, context }: { input: any, context: any }) => {
-    const { db } = context;
-    const userId = 'userid123456'; // TODO: auth
+    const { db, userId } = context;
+    if (!userId) throw new ORPCError('UNAUTHORIZED');
 
-    // Check if asset exists and belongs to user
     const [asset] = await db.select()
       .from(assets)
       .where(and(eq(assets.id, input.id), eq(assets.userId, userId)))
@@ -354,24 +334,19 @@ export const update = os
       throw new ORPCError('NOT_FOUND', { message: 'Asset not found' });
     }
 
-    // Check if asset is locked
     if (asset.status === 'locked') {
       throw new ORPCError('FORBIDDEN', { message: 'Cannot modify locked asset' });
     }
 
-    // Determine target folder (use new folderId if provided, otherwise keep current)
     const targetFolderId = input.folderId !== undefined ? input.folderId : asset.folderId;
     const targetName = input.name !== undefined ? input.name : asset.name;
 
-    // Check for name conflict in the target directory (only if name or folderId is changing)
     if (input.name !== undefined || input.folderId !== undefined) {
-      // Only check if name actually changed
       if (targetName !== asset.name || targetFolderId !== asset.folderId) {
         const folderCondition = targetFolderId === null
           ? isNull(assets.folderId)
           : eq(assets.folderId, targetFolderId);
 
-        // Check for conflicts, excluding current asset
         const conflictCheck = await db.select()
           .from(assets)
           .where(
@@ -382,7 +357,6 @@ export const update = os
             )
           );
 
-        // Filter out current asset manually
         const conflicts = conflictCheck.filter(a => a.id !== input.id);
         if (conflicts.length > 0) {
           throw new ORPCError('BAD_REQUEST', { message: 'An asset with this name already exists in this directory' });
@@ -411,10 +385,9 @@ export const update = os
 export const copy = os
   .input(z.object({ id: z.string(), folderId: z.string().nullable().optional() }))
   .handler(async ({ input, context }: { input: any, context: any }) => {
-    const { db } = context;
-    const userId = 'userid123456'; // TODO: auth
+    const { db, userId } = context;
+    if (!userId) throw new ORPCError('UNAUTHORIZED');
 
-    // Get source asset
     const [sourceAsset] = await db.select()
       .from(assets)
       .where(and(eq(assets.id, input.id), eq(assets.userId, userId)))
@@ -424,20 +397,16 @@ export const copy = os
       throw new ORPCError('NOT_FOUND', { message: 'Asset not found' });
     }
 
-    // Copy is allowed even for locked assets (read-only operation)
     const newId = nanoid();
     const newFolderId = input.folderId !== undefined ? input.folderId : sourceAsset.folderId;
 
-    // Copy R2 files if they exist
     let newPath = sourceAsset.path;
-    let newCoverPath: string | null = sourceAsset.coverPath; // Default to original if copy fails
+    let newCoverPath: string | null = sourceAsset.coverPath;
 
     if (sourceAsset.path) {
-      // Copy original file in jeweai bucket
       const ext = sourceAsset.path.split('.').pop() || '';
-      const newPathKey = `userid123456/${newId}.${ext}`;
+      const newPathKey = `${userId}/${newId}.${ext}`;
       try {
-        // Pass mimeType if available, otherwise it will be inferred from extension
         await copyR2Object(
           R2_BUCKET || 'jeweai',
           sourceAsset.path,
@@ -446,11 +415,7 @@ export const copy = os
           sourceAsset.mimeType || undefined
         );
         newPath = newPathKey;
-        console.log(`[Asset Copy] Successfully copied file to ${newPathKey}`);
       } catch (err) {
-        console.error(`[Asset Copy] Failed to copy file ${sourceAsset.path}:`, err);
-        // If copy fails, we should still create the asset but without the file
-        // Or we could throw an error - let's throw to ensure data consistency
         throw new ORPCError('INTERNAL_SERVER_ERROR', {
           message: `Failed to copy file: ${err instanceof Error ? err.message : 'Unknown error'}`
         });
@@ -458,11 +423,9 @@ export const copy = os
     }
 
     if (sourceAsset.coverPath) {
-      // Copy cover file in covers bucket
       const ext = sourceAsset.coverPath.split('.').pop() || 'png';
-      const newCoverKey = `userid123456/${newId}_cover.${ext}`;
+      const newCoverKey = `${userId}/${newId}_cover.${ext}`;
       try {
-        // Cover files are usually images, infer from extension
         await copyR2Object(
           R2_PUBLIC_BUCKET || 'covers',
           sourceAsset.coverPath,
@@ -470,32 +433,21 @@ export const copy = os
           newCoverKey
         );
         newCoverPath = newCoverKey;
-        console.log(`[Asset Copy] Successfully copied cover to ${newCoverKey}`);
       } catch (err) {
-        console.error(`[Asset Copy] Failed to copy cover ${sourceAsset.coverPath}:`, err);
-        // If cover copy fails, use original coverPath (shared file)
-        // This ensures preview still works
-        console.warn(`[Asset Copy] Using original coverPath ${sourceAsset.coverPath} for asset ${newId}`);
         newCoverPath = sourceAsset.coverPath;
       }
     }
 
-    console.log(`[Asset Copy] Final paths - path: ${newPath}, coverPath: ${newCoverPath}`);
-
-    // Generate new name with "copy" before file extension
     let newName = sourceAsset.name || 'asset';
     const lastDotIndex = newName.lastIndexOf('.');
     if (lastDotIndex > 0) {
-      // Has extension: insert " copy" before the extension
       const nameWithoutExt = newName.substring(0, lastDotIndex);
       const ext = newName.substring(lastDotIndex);
       newName = `${nameWithoutExt} copy${ext}`;
     } else {
-      // No extension: append " copy"
       newName = `${newName} copy`;
     }
 
-    // Create new asset record
     const [newAsset] = await db.insert(assets).values({
       id: newId,
       userId,
@@ -514,7 +466,7 @@ export const copy = os
       duration: sourceAsset.duration,
       prompt: sourceAsset.prompt,
       metadata: sourceAsset.metadata,
-      status: 'unlocked', // Copied assets are always unlocked
+      status: 'unlocked',
       createdAt: new Date(),
       updatedAt: new Date(),
     }).returning();
@@ -525,10 +477,9 @@ export const copy = os
 export const deleteAsset = os
   .input(z.object({ id: z.string() }))
   .handler(async ({ input, context }: { input: any, context: any }) => {
-    const { db } = context;
-    const userId = 'userid123456'; // TODO: auth
+    const { db, userId } = context;
+    if (!userId) throw new ORPCError('UNAUTHORIZED');
 
-    // Check if asset exists and belongs to user
     const [asset] = await db.select()
       .from(assets)
       .where(and(eq(assets.id, input.id), eq(assets.userId, userId)))
@@ -538,27 +489,21 @@ export const deleteAsset = os
       throw new ORPCError('NOT_FOUND', { message: 'Asset not found' });
     }
 
-    // Check if asset is locked
     if (asset.status === 'locked') {
       throw new ORPCError('FORBIDDEN', { message: 'Cannot delete locked asset' });
     }
 
-    // Delete R2 files before deleting database record
     if (asset.path) {
-      // Delete original file from jeweai bucket
       await deleteR2Object(R2_BUCKET || 'jeweai', asset.path);
     }
 
     if (asset.coverPath) {
-      // Delete cover file from covers bucket
       await deleteR2Object(R2_PUBLIC_BUCKET || 'covers', asset.coverPath);
     }
 
-    // Delete database record
     await db.delete(assets)
       .where(eq(assets.id, input.id));
 
-    console.log(`[Asset Delete] Deleted asset ${input.id} and associated R2 files`);
     return { success: true };
   });
 
@@ -566,10 +511,9 @@ export const deleteAsset = os
 export const createFolder = os
   .input(z.object({ name: z.string(), parentId: z.string().nullable().optional() }))
   .handler(async ({ input, context }: { input: any, context: any }) => {
-    const { db } = context;
-    const userId = 'userid123456'; // TODO: auth
+    const { db, userId } = context;
+    if (!userId) throw new ORPCError('UNAUTHORIZED');
 
-    // Check for name conflict in the same directory
     const parentId = input.parentId || null;
     const parentCondition = parentId === null
       ? isNull(folders.parentId)
@@ -611,10 +555,9 @@ export const updateFolder = os
     })
   )
   .handler(async ({ input, context }: { input: any, context: any }) => {
-    const { db } = context;
-    const userId = 'userid123456'; // TODO: auth
+    const { db, userId } = context;
+    if (!userId) throw new ORPCError('UNAUTHORIZED');
 
-    // Check if folder exists and belongs to user
     const [folder] = await db.select()
       .from(folders)
       .where(and(eq(folders.id, input.id), eq(folders.userId, userId)))
@@ -624,19 +567,15 @@ export const updateFolder = os
       throw new ORPCError('NOT_FOUND', { message: 'Folder not found' });
     }
 
-    // Determine target parent (use new parentId if provided, otherwise keep current)
     const targetParentId = input.parentId !== undefined ? input.parentId : folder.parentId;
     const targetName = input.name !== undefined ? input.name : folder.name;
 
-    // Check for name conflict in the target directory (only if name or parentId is changing)
     if (input.name !== undefined || input.parentId !== undefined) {
-      // Only check if name actually changed
       if (targetName !== folder.name || targetParentId !== folder.parentId) {
         const parentCondition = targetParentId === null
           ? isNull(folders.parentId)
           : eq(folders.parentId, targetParentId);
 
-        // Check for conflicts, excluding current folder
         const conflictCheck = await db.select()
           .from(folders)
           .where(
@@ -647,7 +586,6 @@ export const updateFolder = os
             )
           );
 
-        // Filter out current folder manually
         const conflicts = conflictCheck.filter(f => f.id !== input.id);
         if (conflicts.length > 0) {
           throw new ORPCError('BAD_REQUEST', { message: 'A folder with this name already exists in this directory' });
@@ -655,7 +593,6 @@ export const updateFolder = os
       }
     }
 
-    // Prevent circular reference
     if (input.parentId) {
       let check: string | null = input.parentId;
       while (check) {
@@ -691,10 +628,9 @@ export const updateFolder = os
 export const deleteFolder = os
   .input(z.object({ id: z.string() }))
   .handler(async ({ input, context }: { input: any, context: any }) => {
-    const { db } = context;
-    const userId = 'userid123456'; // TODO: auth
+    const { db, userId } = context;
+    if (!userId) throw new ORPCError('UNAUTHORIZED');
 
-    // Check if folder exists and belongs to user
     const [folder] = await db.select()
       .from(folders)
       .where(and(eq(folders.id, input.id), eq(folders.userId, userId)))
@@ -704,24 +640,19 @@ export const deleteFolder = os
       throw new ORPCError('NOT_FOUND', { message: 'Folder not found' });
     }
 
-    // Recursively delete all child folders and move assets to parent or root
     async function deleteFolderRecursive(folderId: string, newParentId: string | null) {
-      // Move all assets in this folder to new parent
       await db.update(assets)
         .set({ folderId: newParentId, updatedAt: new Date() })
         .where(eq(assets.folderId, folderId));
 
-      // Get all child folders
       const childFolders = await db.select()
         .from(folders)
         .where(eq(folders.parentId, folderId));
 
-      // Recursively delete child folders
       for (const child of childFolders) {
         await deleteFolderRecursive(child.id, newParentId);
       }
 
-      // Delete the folder itself
       await db.delete(folders)
         .where(eq(folders.id, folderId));
     }
@@ -734,8 +665,8 @@ export const deleteFolder = os
 export const getFolder = os
   .input(z.object({ id: z.string() }))
   .handler(async ({ input, context }: { input: any, context: any }) => {
-    const { db } = context;
-    const userId = 'userid123456'; // TODO: auth
+    const { db, userId } = context;
+    if (!userId) throw new ORPCError('UNAUTHORIZED');
 
     const [folder] = await db.select()
       .from(folders)
@@ -763,8 +694,8 @@ export const listFolders = os
     }).optional()
   )
   .handler(async ({ input, context }: { input?: { parentId?: string | null }, context: any }) => {
-    const { db } = context;
-    const userId = 'userid123456'; // TODO: auth
+    const { db, userId } = context;
+    if (!userId) throw new ORPCError('UNAUTHORIZED');
 
     const parentId = input?.parentId ?? null;
     const parentCondition = parentId === null

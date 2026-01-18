@@ -62,8 +62,7 @@
 			const { user, token } = await client.auth.login({ email, password });
 			if (user) {
 				localStorage.setItem('token', token);
-				auth.login(); // This currently sets mockup data, but better to update it with real user info
-				// In a real app we'd pass user info to auth.login(user)
+				auth.login(user); // Pass real user data
 				onClose();
 			}
 		} catch (e: any) {

@@ -63,8 +63,8 @@ export const create = os
     })
   )
   .handler(async ({ input, context }: { input: any, context: any }) => {
-    const { db } = context;
-    const userId = 'userid123456'; // TODO: Get from auth context
+    const { db, userId } = context;
+    if (!userId) throw new ORPCError('UNAUTHORIZED');
 
     // Function to calculate dimensions based on aspect ratio
     function getDimensions(aspectRatio: string | undefined, isImageOnly: boolean): { width: number; height: number } {
@@ -213,8 +213,8 @@ import { alias } from 'drizzle-orm/sqlite-core';
 
 export const list = os
   .handler(async ({ context }: { context: any }) => {
-    const { db } = context;
-    const userId = 'userid123456'; // TODO: auth
+    const { db, userId } = context;
+    if (!userId) throw new ORPCError('UNAUTHORIZED');
 
     const refAssets = alias(assets, 'ref');
     const resAssets = alias(assets, 'res');
@@ -257,8 +257,8 @@ export const list = os
 export const get = os
   .input(z.object({ id: z.string() }))
   .handler(async ({ input, context }: { input: { id: string }, context: any }) => {
-    const { db } = context;
-    const userId = 'userid123456';
+    const { db, userId } = context;
+    if (!userId) throw new ORPCError('UNAUTHORIZED');
 
     const refAssets = alias(assets, 'ref');
     const resAssets = alias(assets, 'res');
@@ -291,8 +291,8 @@ export const get = os
 export const retry = os
   .input(z.object({ id: z.string() }))
   .handler(async ({ input, context }: { input: { id: string }, context: any }) => {
-    const { db } = context;
-    const userId = 'userid123456';
+    const { db, userId } = context;
+    if (!userId) throw new ORPCError('UNAUTHORIZED');
 
     const [existingTask] = await db.select()
       .from(tasks)

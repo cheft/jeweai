@@ -28,7 +28,8 @@ export const generateVideo = os
     })
   )
   .handler(async ({ input, context }: { input: any, context: any }) => {
-    const { db, env } = context;
+    const { db, env, userId } = context;
+    if (!userId) throw new ORPCError('UNAUTHORIZED');
     const bucket = env?.BUCKET || BUCKET;
     const apiKey = env?.AI_KEY || AI_KEY;
 
@@ -49,7 +50,6 @@ export const generateVideo = os
       // await uploadToR2(bucket as R2Bucket, imageKey, imageBuffer, 'image/png');
 
       // 2. Record source asset
-      const userId = '1111111'; // TODO: Get from auth context
       await db.insert(assets).values({
         id: imageId,
         name: input.filename || 'uploaded-image.png',
@@ -110,7 +110,8 @@ export const generateImage = os
     })
   )
   .handler(async ({ input, context }: { input: any, context: any }) => {
-    const { db, env } = context;
+    const { db, env, userId } = context;
+    if (!userId) throw new ORPCError('UNAUTHORIZED');
     const bucket = env?.BUCKET || BUCKET;
     const apiKey = env?.AI_KEY || AI_KEY;
 
@@ -126,7 +127,6 @@ export const generateImage = os
       // await uploadToR2(bucket as R2Bucket, imageKey, imageBuffer, 'image/png');
 
       // 2. Record source asset
-      const userId = '1111111'; // TODO: Get from auth context
       await db.insert(assets).values({
         id: imageId,
         name: input.filename || 'uploaded-image.png',
@@ -224,7 +224,8 @@ export const checkStatus = os
     videoTaskId: z.string()
   }))
   .handler(async ({ input, context }: { input: any, context: any }) => {
-    const { db, env } = context;
+    const { db, env, userId } = context;
+    if (!userId) throw new ORPCError('UNAUTHORIZED');
     const API_KEY = env?.OPENAI_API_KEY;
 
     try {
