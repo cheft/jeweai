@@ -224,6 +224,7 @@ export const list = os
       ...getTableColumns(tasks), // Select all task columns
       referenceCover: refAssets.coverPath,
       resultCover: resAssets.coverPath,
+      resultAspectRatio: resAssets.aspectRatio, // Get aspect ratio from result asset
     })
       .from(tasks)
       .leftJoin(refAssets, eq(tasks.referenceAssetId, refAssets.id))
@@ -237,6 +238,7 @@ export const list = os
       // referenceImage: referenceCover (may be null for queued/generating tasks)
       // assetLink: resultAssetId (if video completed) > referenceAssetId
       // prompt: always from task.prompt
+      // aspectRatio: from result asset if available
 
       const thumbnail = row.resultCover || row.referenceCover || null;
       const assetLink = row.resultAssetId || row.referenceAssetId || row.id;
@@ -247,6 +249,7 @@ export const list = os
         referenceImage: row.referenceCover, // May be null initially, populated by Go worker
         assetLink: assetLink,
         prompt: row.prompt, // Explicitly include prompt (already in row, but making it clear)
+        aspectRatio: row.resultAspectRatio, // Aspect ratio from result asset
       };
     });
   });
@@ -404,7 +407,7 @@ export const polish = os
 仅输出成品提示，不要解释、不要分支说明、不要额外文案。
 总长度尽量精简（建议≤120个中文字符，最多两行）；只在必要处夹少量英文专业词（如 macro, rim light, shallow DOF）。
 绝不出现品牌logo/水印/乱码文字；避免不真实反光；避免宝石数量/爪数/结构互相矛盾。
-若提供了参考图，必须强调“外观一致性：不改变戒指设计、宝石形状、爪镶数量、金属颜色”。
+必须强调“外观一致性：不改变戒指设计、宝石形状、爪镶数量、金属颜色”。
 默认值（缺省时直接套用）
 
 商业目标：电商成片（真实、质感高级、可上架）
