@@ -47,7 +47,10 @@ function createAuthStore() {
 				]
 			});
 		},
-		logout: () => set(null),
+		logout: () => {
+			localStorage.removeItem('token');
+			set(null);
+		},
 		addCredits: (amount: number) =>
 			update((u) => {
 				if (!u) return null;

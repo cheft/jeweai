@@ -13,14 +13,25 @@ const UserSchema = z.object({
 })
 
 export const me = os
-  .input(
-    UserSchema.pick({})
-  )
-  .handler(async ({ input, context }: { input: any, context: any }) => { // Type strictness might be needed
+  .input(z.void().optional()) // Input not really needed for 'me'
+  .handler(async ({ context }: { context: any }) => {
     const db = context.db;
-    const result = await db.select().from(users).where(eq(users.id, '1111111'))
-    console.log(result[0], 22222)
-    return result[0]
+    const userId = context.userId;
+
+    if (!userId) {
+      return null;
+    }
+
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    if (!user) return null;
+
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.nickname || user.username,
+      credits: 10, // Default for now, maybe add to schema later
+      plan: 'free' as const
+    }
   })
 
 
