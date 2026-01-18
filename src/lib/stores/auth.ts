@@ -27,15 +27,15 @@ function createAuthStore() {
 
 	return {
 		subscribe,
-		login: () => {
+		login: (userData?: Partial<User>) => {
 			set({
-				id: 'usr_' + Math.random().toString(36).substr(2, 9),
-				email: 'demo@sekotalk.com',
-				name: 'Demo User',
-				credits: 10, // Initial free credits
-				plan: 'free',
-				billingCycle: 'monthly',
-				paymentMethods: [
+				id: userData?.id || 'usr_' + Math.random().toString(36).substr(2, 9),
+				email: userData?.email || 'demo@sekotalk.com',
+				name: userData?.name || 'Demo User',
+				credits: userData?.credits ?? 10,
+				plan: userData?.plan || 'free',
+				billingCycle: userData?.billingCycle || 'monthly',
+				paymentMethods: userData?.paymentMethods || [
 					{
 						id: 'pm_1',
 						brand: 'visa',

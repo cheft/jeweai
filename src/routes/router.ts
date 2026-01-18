@@ -1,10 +1,10 @@
 import { me, testFile } from "../services/user";
 import { generateVideo, checkStatus, generateImage } from "../services/assets";
 import * as task from "../services/task";
-import { 
-  get as getAsset, 
-  list as listAssets, 
-  update as updateAsset, 
+import {
+  get as getAsset,
+  list as listAssets,
+  update as updateAsset,
   deleteAsset,
   copy as copyAsset,
   createFolder,
@@ -13,8 +13,10 @@ import {
   listFolders,
   getFolder,
 } from "../services/asset";
+import * as auth from "../services/auth";
 
 export const router = {
+  auth,
   user: {
     me: me,
     testFile: testFile,
