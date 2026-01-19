@@ -62,7 +62,11 @@
 			const { user, token } = await client.auth.login({ email, password });
 			if (user) {
 				localStorage.setItem('token', token);
-				auth.login(user); // Pass real user data
+				auth.login({
+					id: user.id,
+					email: user.email || undefined,
+					name: user.name || undefined
+				}); // Pass real user data with type safety
 				onClose();
 			}
 		} catch (e: any) {
