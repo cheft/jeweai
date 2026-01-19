@@ -14,22 +14,22 @@
 	import styleLuxury from '$lib/assets/style-luxury.png';
 	import styleUrban from '$lib/assets/style-urban.png';
 
-	let prompt = '';
-	let isStyleSelectorOpen = false;
-	let isImageOnly = false;
-	let uploadedImage: string | null = null;
-	let referenceAssetId: string | null = null;
+	let prompt = $state('');
+	let isStyleSelectorOpen = $state(false);
+	let isImageOnly = $state(false);
+	let uploadedImage = $state<string | null>(null);
+	let referenceAssetId = $state<string | null>(null);
 	let fileInput: HTMLInputElement;
-	let selectedStyle: { id: string; name: string; thumbnail: any } | null = null;
-	let isGenerating = false;
-	let isPolishing = false;
+	let selectedStyle = $state<{ id: string; name: string; thumbnail: any } | null>(null);
+	let isGenerating = $state(false);
+	let isPolishing = $state(false);
 	// let orientation: 'landscape' | 'portrait' = 'portrait';
-	let imageAspectRatio = '1:1';
-	let videoAspectRatio = '9:16';
+	let imageAspectRatio = $state('1:1');
+	let videoAspectRatio = $state('9:16');
 
-	$: currentAspectRatio = isImageOnly ? imageAspectRatio : videoAspectRatio;
+	let currentAspectRatio = $derived(isImageOnly ? imageAspectRatio : videoAspectRatio);
 
-	let isOrientationOpen = false;
+	let isOrientationOpen = $state(false);
 
 	const allAspectRatios = [
 		{ value: '1:1', label: '方形 (1:1)', forVideo: false },
@@ -39,9 +39,9 @@
 		{ value: '9:16', label: '短视频竖屏 (9:16)', forVideo: true }
 	];
 
-	$: filteredAspectRatios = isImageOnly
-		? allAspectRatios
-		: allAspectRatios.filter((r) => r.forVideo);
+	let filteredAspectRatios = $derived(
+		isImageOnly ? allAspectRatios : allAspectRatios.filter((r) => r.forVideo)
+	);
 
 	// Check URL params for assetId
 	onMount(() => {
@@ -143,8 +143,35 @@
 		{ id: '10', name: '彩色水墨', thumbnail: styleUrban }
 	];
 
-	let activeCategory = 'All';
+	let activeCategory = $state('All');
 	const categories = ['All', 'Ring', 'Earrings', 'Necklace', 'Bangle'];
+
+	let isCategoryDropdownOpen = $state(false);
+	let isTypeDropdownOpen = $state(false);
+
+	function getCategoryLabel(cat: string) {
+		const labels: Record<string, string> = {
+			All: '全部类型',
+			Ring: '戒指',
+			Earrings: '耳环',
+			Necklace: '项链',
+			Bangle: '手镯'
+		};
+		return labels[cat] || cat;
+	}
+
+	function handleWindowClick() {
+		isCategoryDropdownOpen = false;
+		isTypeDropdownOpen = false;
+	}
+
+	let activeType = $state('All');
+	const mediaTypes = [
+		{ id: 'All', name: '全部' },
+		{ id: 'Video', name: '视频' },
+		{ id: 'Image', name: '图片' },
+		{ id: 'Saved', name: '我的收藏' }
+	];
 
 	const galleryItems = [
 		{
@@ -153,7 +180,9 @@
 			title: 'Sapphire Sparkle',
 			duration: '0:15',
 			isPortrait: false,
-			category: 'Ring'
+			category: 'Ring',
+			type: 'Video',
+			isSaved: true
 		},
 		{
 			id: '2',
@@ -161,7 +190,9 @@
 			title: 'Evening Elegance',
 			duration: '0:12',
 			isPortrait: true,
-			category: 'Earrings'
+			category: 'Earrings',
+			type: 'Image',
+			isSaved: false
 		},
 		{
 			id: '3',
@@ -169,7 +200,9 @@
 			title: 'Golden Sunset',
 			duration: '0:12',
 			isPortrait: false,
-			category: 'Necklace'
+			category: 'Necklace',
+			type: 'Video',
+			isSaved: true
 		},
 		{
 			id: '4',
@@ -177,7 +210,9 @@
 			title: 'Pearl Elegance',
 			duration: '0:10',
 			isPortrait: false,
-			category: 'Earrings'
+			category: 'Earrings',
+			type: 'Image',
+			isSaved: false
 		},
 		{
 			id: '5',
@@ -185,7 +220,9 @@
 			title: 'Statement Piece',
 			duration: '0:15',
 			isPortrait: true,
-			category: 'Necklace'
+			category: 'Necklace',
+			type: 'Video',
+			isSaved: false
 		},
 		{
 			id: '6',
@@ -193,7 +230,9 @@
 			title: 'Diamond Rotation',
 			duration: '0:20',
 			isPortrait: false,
-			category: 'Bangle'
+			category: 'Bangle',
+			type: 'Image',
+			isSaved: true
 		},
 		{
 			id: '7',
@@ -201,7 +240,9 @@
 			title: 'Royal Collection',
 			duration: '0:18',
 			isPortrait: false,
-			category: 'Ring'
+			category: 'Ring',
+			type: 'Video',
+			isSaved: false
 		},
 		{
 			id: '8',
@@ -209,7 +250,9 @@
 			title: 'Street Style Silver',
 			duration: '0:15',
 			isPortrait: false,
-			category: 'Bangle'
+			category: 'Bangle',
+			type: 'Image',
+			isSaved: false
 		},
 		{
 			id: '9',
@@ -217,7 +260,9 @@
 			title: 'Statement Piece',
 			duration: '0:15',
 			isPortrait: true,
-			category: 'Necklace'
+			category: 'Necklace',
+			type: 'Image',
+			isSaved: true
 		},
 		{
 			id: '10',
@@ -225,7 +270,9 @@
 			title: 'Statement Piece',
 			duration: '0:15',
 			isPortrait: true,
-			category: 'Earrings'
+			category: 'Earrings',
+			type: 'Video',
+			isSaved: false
 		},
 		{
 			id: '11',
@@ -233,7 +280,9 @@
 			title: 'Statement Piece',
 			duration: '0:15',
 			isPortrait: true,
-			category: 'Necklace'
+			category: 'Necklace',
+			type: 'Image',
+			isSaved: false
 		},
 		{
 			id: '12',
@@ -241,7 +290,9 @@
 			title: 'Statement Piece',
 			duration: '0:15',
 			isPortrait: true,
-			category: 'Ring'
+			category: 'Ring',
+			type: 'Video',
+			isSaved: true
 		},
 		{
 			id: '13',
@@ -249,15 +300,23 @@
 			title: 'Statement Piece',
 			duration: '0:15',
 			isPortrait: true,
-			category: 'Bangle'
+			category: 'Bangle',
+			type: 'Image',
+			isSaved: false
 		}
 	];
 
-	$: filteredItems =
-		activeCategory === 'All'
-			? galleryItems
-			: galleryItems.filter((item) => item.category === activeCategory);
+	let filteredItems = $derived(
+		galleryItems.filter((item) => {
+			const matchCategory = activeCategory === 'All' || item.category === activeCategory;
+			const matchType =
+				activeType === 'All' || (activeType === 'Saved' ? item.isSaved : item.type === activeType);
+			return matchCategory && matchType;
+		})
+	);
 </script>
+
+<svelte:window onclick={handleWindowClick} />
 
 <svelte:head>
 	<title>Gallery - JeweAI</title>
@@ -290,7 +349,7 @@
 							class="relative z-10 flex items-center justify-center space-x-3 rounded-xl px-5 py-2.5 text-base font-medium transition-colors duration-500 {!isImageOnly
 								? 'text-black'
 								: 'text-gray-400 hover:text-white'}"
-							on:click={() => (isImageOnly = false)}
+							onclick={() => (isImageOnly = false)}
 						>
 							<svg
 								xmlns="http://www.w3.org/2000/svg"
@@ -313,7 +372,7 @@
 							class="relative z-10 flex items-center justify-center space-x-3 rounded-xl px-5 py-2.5 text-base font-medium transition-colors duration-500 {isImageOnly
 								? 'text-black'
 								: 'text-gray-400 hover:text-white'}"
-							on:click={() => (isImageOnly = true)}
+							onclick={() => (isImageOnly = true)}
 						>
 							<svg
 								xmlns="http://www.w3.org/2000/svg"
@@ -354,7 +413,7 @@
 							{#if !referenceAssetId}
 								<button
 									class="flex h-6 w-6 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-white/10 hover:text-white"
-									on:click={() => {
+									onclick={() => {
 										uploadedImage = null;
 										if (fileInput) fileInput.value = '';
 									}}
@@ -395,7 +454,7 @@
 							<span class="font-medium text-white">{selectedStyle.name}</span>
 							<button
 								class="flex h-6 w-6 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-white/10 hover:text-white"
-								on:click={() => (selectedStyle = null)}
+								onclick={() => (selectedStyle = null)}
 								aria-label="移除风格"
 							>
 								<svg
@@ -436,7 +495,7 @@
 								class="hidden"
 								accept="image/*"
 								disabled={!!referenceAssetId}
-								on:change={(e) => {
+								onchange={(e) => {
 									if (referenceAssetId) return;
 									const file = e.currentTarget.files?.[0];
 									if (file) {
@@ -502,7 +561,7 @@
 							class="transition-all duration-300 hover:scale-110 hover:text-white {isStyleSelectorOpen
 								? 'text-white shadow-[0_0_15px_rgba(255,255,255,0.1)]'
 								: ''}"
-							on:click={() => (isStyleSelectorOpen = !isStyleSelectorOpen)}
+							onclick={() => (isStyleSelectorOpen = !isStyleSelectorOpen)}
 							aria-label="打开画风列表"
 						>
 							<svg
@@ -537,7 +596,7 @@
 								class="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm font-medium transition-all duration-300 hover:bg-white/10 {isOrientationOpen
 									? 'border-seko-accent text-seko-accent'
 									: 'text-gray-400'}"
-								on:click={() => (isOrientationOpen = !isOrientationOpen)}
+								onclick={() => (isOrientationOpen = !isOrientationOpen)}
 							>
 								{#if currentAspectRatio === '1:1'}
 									<svg
@@ -634,7 +693,7 @@
 											ratio.value
 												? 'bg-seko-accent/10 text-seko-accent'
 												: 'text-gray-300 hover:bg-white/5'}"
-											on:click={() => {
+											onclick={() => {
 												if (isImageOnly) {
 													imageAspectRatio = ratio.value;
 												} else {
@@ -723,7 +782,7 @@
 						<!-- AI Polish Button -->
 						<button
 							class="group flex h-12 items-center space-x-2 rounded-full border border-seko-accent/30 bg-seko-accent/5 px-6 text-seko-accent transition-all duration-300 hover:scale-105 hover:bg-seko-accent hover:text-black hover:shadow-[0_0_20px_rgba(163,230,53,0.3)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-							on:click={handlePolish}
+							onclick={handlePolish}
 							disabled={isPolishing || isGenerating}
 						>
 							{#if isPolishing}
@@ -775,7 +834,7 @@
 						<!-- Generate Button -->
 						<button
 							class="flex h-12 w-12 items-center justify-center rounded-full bg-gray-800 text-gray-400 shadow-lg transition-all duration-300 hover:scale-110 hover:bg-seko-accent hover:text-black hover:shadow-seko-accent/30 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-							on:click={handleGenerate}
+							onclick={handleGenerate}
 							disabled={isGenerating || isPolishing}
 						>
 							{#if isGenerating}
@@ -833,7 +892,7 @@
 								style.id
 									? 'scale-105 border-seko-accent shadow-lg shadow-seko-accent/20'
 									: 'border-transparent hover:border-white/20 hover:bg-white/5'}"
-								on:click={() => {
+								onclick={() => {
 									selectedStyle = style;
 									isStyleSelectorOpen = false;
 								}}
@@ -882,30 +941,146 @@
 			{/if}
 		</div>
 
-		<!-- Inspiration Plaza Section -->
-		<!-- <div class="mb-12 flex flex-col items-center justify-between gap-6 md:flex-row">
+		<div class="mb-12 flex items-center justify-between">
 			<h2 class="text-2xl font-bold text-white md:text-3xl">灵感广场</h2>
 
-			<div
-				class="flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/5 bg-white/5 p-1.5 backdrop-blur-lg"
-			>
-				{#each categories as category}
+			<div class="flex items-center gap-4">
+				<!-- Category Dropdown -->
+				<div class="relative">
 					<button
-						class="rounded-xl px-6 py-2.5 text-sm font-medium transition-all duration-300 {activeCategory ===
-						category
-							? 'bg-seko-accent text-black shadow-[0_0_15px_rgba(163,230,53,0.3)]'
-							: 'text-gray-400 hover:bg-white/5 hover:text-white'}"
-						on:click={() => (activeCategory = category)}
+						class="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-medium text-white transition-all hover:bg-white/10"
+						onclick={(e) => {
+							e.stopPropagation();
+							isCategoryDropdownOpen = !isCategoryDropdownOpen;
+							isTypeDropdownOpen = false;
+						}}
 					>
-						{category}
+						<span class="text-gray-400">类目:</span>
+						<span>{getCategoryLabel(activeCategory)}</span>
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2.5"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							class="text-gray-500 transition-transform {isCategoryDropdownOpen
+								? 'rotate-180'
+								: ''}"><path d="m6 9 6 6 6-6" /></svg
+						>
 					</button>
-				{/each}
+
+					{#if isCategoryDropdownOpen}
+						<div
+							class="absolute top-full right-0 z-50 mt-2 w-48 overflow-hidden rounded-2xl border border-white/10 bg-[#1a1a1a] shadow-2xl backdrop-blur-xl"
+							transition:fly={{ y: -10, duration: 200 }}
+						>
+							<div class="p-1.5">
+								{#each categories as category}
+									<button
+										class="flex w-full items-center justify-between rounded-xl px-4 py-2.5 text-left text-sm transition-colors {activeCategory ===
+										category
+											? 'bg-seko-accent font-bold text-black'
+											: 'text-gray-300 hover:bg-white/5'}"
+										onclick={() => {
+											activeCategory = category;
+											isCategoryDropdownOpen = false;
+										}}
+									>
+										<span>{getCategoryLabel(category)}</span>
+										{#if activeCategory === category}
+											<svg
+												xmlns="http://www.w3.org/2000/svg"
+												width="14"
+												height="14"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="3.5"
+												stroke-linecap="round"
+												stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg
+											>
+										{/if}
+									</button>
+								{/each}
+							</div>
+						</div>
+					{/if}
+				</div>
+
+				<!-- Type Dropdown -->
+				<div class="relative">
+					<button
+						class="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-medium text-white transition-all hover:bg-white/10"
+						onclick={(e) => {
+							e.stopPropagation();
+							isTypeDropdownOpen = !isTypeDropdownOpen;
+							isCategoryDropdownOpen = false;
+						}}
+					>
+						<span class="text-gray-400">筛选:</span>
+						<span>{mediaTypes.find((t) => t.id === activeType)?.name}</span>
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2.5"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							class="text-gray-500 transition-transform {isTypeDropdownOpen ? 'rotate-180' : ''}"
+							><path d="m6 9 6 6 6-6" /></svg
+						>
+					</button>
+
+					{#if isTypeDropdownOpen}
+						<div
+							class="absolute top-full right-0 z-50 mt-2 w-48 overflow-hidden rounded-2xl border border-white/10 bg-[#1a1a1a] shadow-2xl backdrop-blur-xl"
+							transition:fly={{ y: -10, duration: 200 }}
+						>
+							<div class="p-1.5">
+								{#each mediaTypes as type}
+									<button
+										class="flex w-full items-center justify-between rounded-xl px-4 py-2.5 text-left text-sm transition-colors {activeType ===
+										type.id
+											? 'bg-white/10 font-bold text-white'
+											: 'text-gray-300 hover:bg-white/5'}"
+										onclick={() => {
+											activeType = type.id;
+											isTypeDropdownOpen = false;
+										}}
+									>
+										<span>{type.name}</span>
+										{#if activeType === type.id}
+											<svg
+												xmlns="http://www.w3.org/2000/svg"
+												width="14"
+												height="14"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="3.5"
+												stroke-linecap="round"
+												stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg
+											>
+										{/if}
+									</button>
+								{/each}
+							</div>
+						</div>
+					{/if}
+				</div>
 			</div>
-		</div> -->
+		</div>
 
-		<!-- <GalleryGrid items={filteredItems} /> -->
+		<GalleryGrid items={filteredItems} />
 
-		<!-- <div class="mt-20 text-center">
+		<div class="mt-20 text-center">
 			<p class="mb-6 text-gray-400">Ready to create your own?</p>
 			<a
 				href="/"
@@ -913,6 +1088,6 @@
 			>
 				Start Generating Free
 			</a>
-		</div> -->
+		</div>
 	</div>
 </div>

@@ -842,7 +842,7 @@ func submitGRSAIImage(apiKey, prompt, imageUrl, aspectRatio string) (string, err
 	}
 
 	payload := map[string]interface{}{
-		"model":        "gpt-image-1.5", // gpt-image-1.5、sora-image、nano-banana-pro
+		"model":        "nano-banana-pro-vt", // gpt-image-1.5、sora-image、nano-banana-pro、nano-banana-pro-vt
 		"prompt":       prompt,
 		"aspectRatio":  aspectRatio,
 		"size":         aspectRatio,
