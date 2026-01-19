@@ -66,6 +66,7 @@ func updateTaskStatus(taskId, status string, data map[string]interface{}) {
 
 type ImageGeneratePayload struct {
 	TaskID      string `json:"TaskID"`
+	UserID      string `json:"UserID"`
 	AssetID     string `json:"AssetID"`
 	ImagePath   string `json:"ImagePath"`
 	Width       int    `json:"Width"`
@@ -79,6 +80,7 @@ type ImageGeneratePayload struct {
 
 type ImageCheckStatusPayload struct {
 	TaskID      string `json:"TaskID"`
+	UserID      string `json:"UserID"`
 	AssetID     string `json:"AssetID"`
 	ExternalID  string `json:"ExternalID"`
 	ImagePath   string `json:"ImagePath"` // Reference image path (if any)
@@ -224,8 +226,8 @@ func HandleImageGenerateTask(ctx context.Context, t *asynq.Task) error {
 				coversBucket = "covers"
 			}
 
-			// Fixed user ID: userid123456
-			coverKey = fmt.Sprintf("userid123456/%s_720p.png", p.TaskID)
+			// Dynamic user ID: p.UserID
+			coverKey = fmt.Sprintf("%s/%s_720p.png", p.UserID, p.TaskID)
 			err = uploadToR2(ctx, localCoverPath, coversBucket, coverKey)
 			if err != nil {
 				fmt.Printf("[IMAGE] Upload cover warning: %v\n", err)
@@ -298,6 +300,7 @@ func HandleImageGenerateTask(ctx context.Context, t *asynq.Task) error {
 	// 5. Enqueue Status Check
 	checkPayload, _ := json.Marshal(ImageCheckStatusPayload{
 		TaskID:      p.TaskID,
+		UserID:      p.UserID,
 		AssetID:     p.AssetID,
 		ExternalID:  grsaiID,
 		ImagePath:   p.ImagePath,
@@ -405,7 +408,7 @@ func processImageResult(ctx context.Context, p ImageCheckStatusPayload, resultUR
 		coversBucket = "covers"
 	}
 
-	imageKey := fmt.Sprintf("userid123456/%s.png", p.TaskID)
+	imageKey := fmt.Sprintf("%s/%s.png", p.UserID, p.TaskID)
 	if err := uploadToR2(ctx, dlPath, jeweaiBucket, imageKey); err != nil {
 		fmt.Printf("[IMAGE] Upload generated image error: %v\n", err)
 		updateTaskStatus(p.TaskID, "failed", map[string]interface{}{
@@ -415,7 +418,7 @@ func processImageResult(ctx context.Context, p ImageCheckStatusPayload, resultUR
 		return nil
 	}
 
-	imageCoverKey := fmt.Sprintf("userid123456/%s_cover.png", p.TaskID)
+	imageCoverKey := fmt.Sprintf("%s/%s_cover.png", p.UserID, p.TaskID)
 	if err := uploadToR2(ctx, localGeneratedCoverPath, coversBucket, imageCoverKey); err != nil {
 		fmt.Printf("[IMAGE] Upload generated cover error: %v\n", err)
 	}
@@ -466,17 +469,17 @@ func HandleVideoGenerateTask(ctx context.Context, t *asynq.Task) error {
 	coverKey := ""
 	if err == nil {
 		// Upload Cover to public bucket 'covers'
-		// Path format: userid123456/{taskID}_720p.png
-		// All image covers stored in covers bucket under userid123456/ directory
+		// Path format: {userId}/{taskID}_720p.png
+		// All image covers stored in covers bucket under user directory
 
 		coversBucket := os.Getenv("R2_PUBLIC_BUCKET")
 		if coversBucket == "" {
 			coversBucket = "covers"
 		}
 
-		// Fixed user ID: userid123456
-		// Cover stored in covers bucket under userid123456/ directory
-		coverKey = fmt.Sprintf("userid123456/%s_720p.png", p.TaskID)
+		// Dynamic user ID: p.UserID
+		// Cover stored in covers bucket under p.UserID/ directory
+		coverKey = fmt.Sprintf("%s/%s_720p.png", p.UserID, p.TaskID)
 		err = uploadToR2(ctx, localCoverPath, coversBucket, coverKey)
 		if err != nil {
 			fmt.Printf("[VIDEO] Upload cover warning: %v\n", err)
@@ -696,8 +699,8 @@ func processVideoResult(ctx context.Context, p VideoCheckStatusPayload, resultUR
 		coversBucket = "covers"
 	}
 
-	videoKey := fmt.Sprintf("userid123456/%s.mp4", p.VideoID)
-	thumbKey := fmt.Sprintf("userid123456/%s_thumb.png", p.VideoID)
+	videoKey := fmt.Sprintf("%s/%s.mp4", p.UserID, p.VideoID)
+	thumbKey := fmt.Sprintf("%s/%s_thumb.png", p.UserID, p.VideoID)
 
 	// Upload Video (Private)
 	if err := uploadToR2(ctx, tmpVideoPath, jeweaiBucket, videoKey); err != nil {

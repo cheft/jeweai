@@ -1,8 +1,8 @@
 import { ORPCError, os } from '@orpc/server'
 import * as z from 'zod'
 // import db from '@/server/db' // Removed: accessing via context for D1
-import { users } from '@/drizzle/schema'
-import { eq, sql, desc, innerProduct } from 'drizzle-orm'
+import { users, creditTransactions } from '@/drizzle/schema'
+import { eq, sql, desc } from 'drizzle-orm'
 
 const UserSchema = z.object({
   id: z.string().nullable().optional(),
@@ -29,18 +29,25 @@ export const me = os
       id: user.id,
       email: user.email,
       name: user.nickname || user.username,
-      credits: 10, // Default for now, maybe add to schema later
+      credits: user.credits ?? 0,
       plan: 'free' as const
     }
   })
 
+export const getCreditsHistory = os
+  .input(z.void().optional())
+  .handler(async ({ context }: { context: any }) => {
+    const { db, userId } = context;
+    if (!userId) throw new ORPCError('UNAUTHORIZED');
 
-export const testFile = os
-  .input(z.object({ anyFieldName: z.instanceof(File) }))
-  .output(z.object({ anyFieldName: z.instanceof(File) }))
-  .handler(async ({ input }) => {
-    console.log(input)
-    return {
-      anyFieldName: new File(['Hello World'], 'hello.txt', { type: 'text/plain' }),
-    }
+    const history = await db.select()
+      .from(creditTransactions)
+      .where(eq(creditTransactions.userId, userId))
+      .orderBy(desc(creditTransactions.createdAt))
+      .limit(50);
+
+    return history.map((h: any) => ({
+      ...h,
+      createdAt: h.createdAt instanceof Date ? h.createdAt.getTime() : h.createdAt
+    }));
   })

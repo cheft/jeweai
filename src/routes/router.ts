@@ -1,4 +1,4 @@
-import { me, testFile } from "../services/user";
+import { me, getCreditsHistory } from "../services/user";
 import { generateVideo, checkStatus, generateImage } from "../services/assets";
 import * as task from "../services/task";
 import {
@@ -19,7 +19,7 @@ export const router = {
   auth,
   user: {
     me: me,
-    testFile: testFile,
+    getCreditsHistory: getCreditsHistory,
   },
   assets: {
     generateVideo,

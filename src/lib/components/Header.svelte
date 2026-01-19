@@ -101,7 +101,7 @@
 								</div>
 
 								<a
-									href="/pricing"
+									href="/billing"
 									class="group flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-white/5 hover:text-white"
 									onclick={() => (isDropdownOpen = false)}
 								>
@@ -115,7 +115,7 @@
 								</a>
 
 								<a
-									href="/billing"
+									href="/credits"
 									class="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-white/5 hover:text-white"
 									onclick={() => (isDropdownOpen = false)}
 								>

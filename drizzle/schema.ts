@@ -16,10 +16,20 @@ export const users = sqliteTable(
     password: text("password"),
     salt: text("salt"),
     status: integer("status").default(1),
-    createdAt: integer("created_at", { mode: "timestamp" }),
-    updatedAt: integer("updated_at", { mode: "timestamp" }),
+    credits: integer("credits").default(20),
+    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
   }
 );
+
+export const creditTransactions = sqliteTable("credit_transactions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id"),
+  amount: integer("amount"),
+  type: text("type"), // 'consumption', 'reward', 'purchase'
+  description: text("description"),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
 
 export const folders = sqliteTable("folders", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
